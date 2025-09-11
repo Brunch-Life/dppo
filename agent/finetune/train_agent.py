@@ -11,6 +11,9 @@ import hydra
 import logging
 import wandb
 import random
+import gymnasium as gym
+from env.gym_utils.wrapper.maniskill_image import ManiskillImageWrapper
+from env.gym_utils.wrapper.multi_step import MultiStep
 
 log = logging.getLogger(__name__)
 from env.gym_utils import make_async
@@ -40,22 +43,70 @@ class TrainAgent:
         # Make vectorized env
         self.env_name = cfg.env.name
         env_type = cfg.env.get("env_type", None)
-        self.venv = make_async(
-            cfg.env.name,
-            env_type=env_type,
-            num_envs=cfg.env.n_envs,
-            asynchronous=True,
-            max_episode_steps=cfg.env.max_episode_steps,
-            wrappers=cfg.env.get("wrappers", None),
-            robomimic_env_cfg_path=cfg.get("robomimic_env_cfg_path", None),
-            shape_meta=cfg.get("shape_meta", None),
-            use_image_obs=cfg.env.get("use_image_obs", False),
-            render=cfg.env.get("render", False),
-            render_offscreen=cfg.env.get("save_video", False),
-            obs_dim=cfg.obs_dim,
-            action_dim=cfg.action_dim,
-            **cfg.env.specific if "specific" in cfg.env else {},
-        )
+        if cfg.env.name == "TabletopPickPlaceEnv-v1":
+            from mani_skill.envs.sapien_env import BaseEnv
+            from mani_skill.envs.tasks.tabletop import TabletopPickPlaceEnv
+            wrappers = cfg.env.wrappers
+            env_kwargs = dict(
+                num_envs=1, #beacause we use make_async to create multiple envs
+                obs_mode="rgb+segmentation",
+                control_mode="pd_ee_delta_pose",
+                sim_backend="gpu",
+                sim_config={
+                    "sim_freq": 1000,
+                    "control_freq": 25,
+                },
+                max_episode_steps=300,
+                sensor_configs={"shader_pack": "default"},
+                is_table_green = False,
+                render_mode="rgb_array",
+            )
+
+            if cfg.env.robot_uids is not None:
+                env_kwargs["robot_uids"] = tuple(cfg.env.robot_uids.split(","))
+
+
+            if cfg.env_name == "TabletopPickPlaceEnv-v1":
+                env_kwargs["object_name"] = cfg.env.object_name
+                env_kwargs["container_name"] = cfg.env.container_name
+            elif cfg.env_name == "TabletopPickEnv-v1":
+                env_kwargs["object_name"] = cfg.env.object_name
+
+            env: BaseEnv = gym.make(
+                cfg.env_name,
+                **env_kwargs,
+            )
+            env_wrapper = MultiStep(
+                env=env,
+                n_obs_steps=cfg.env.wrappers.multi_step.n_obs_steps,
+                n_action_steps=cfg.env.wrappers.multi_step.n_action_steps,
+                max_episode_steps=cfg.env.max_episode_steps,
+            )
+            env_wrapper = ManiskillImageWrapper(
+                env=env_wrapper,
+                shape_meta=cfg.shape_meta,
+                image_keys=cfg.env.wrappers.maniskill_image.image_keys,
+            )
+
+            
+            self.venv = env_wrapper
+        else:
+            self.venv = make_async(
+                cfg.env.name,
+                env_type=env_type,
+                num_envs=cfg.env.n_envs,
+                asynchronous=True,
+                max_episode_steps=cfg.env.max_episode_steps,
+                wrappers=cfg.env.get("wrappers", None),
+                robomimic_env_cfg_path=cfg.get("robomimic_env_cfg_path", None),
+                shape_meta=cfg.get("shape_meta", None),
+                use_image_obs=cfg.env.get("use_image_obs", False),
+                render=cfg.env.get("render", False),
+                render_offscreen=cfg.env.get("save_video", False),
+                obs_dim=cfg.obs_dim,
+                action_dim=cfg.action_dim,
+                **cfg.env.specific if "specific" in cfg.env else {},
+            )
         if not env_type == "furniture":
             self.venv.seed(
                 [self.seed + i for i in range(cfg.env.n_envs)]

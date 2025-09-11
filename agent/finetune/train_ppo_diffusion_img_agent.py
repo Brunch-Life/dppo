@@ -112,6 +112,8 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     )  # n_env x denoising x horizon x act
                 action_venv = output_venv[:, : self.act_steps]
 
+
+                # env here
                 # Apply multi-step action
                 obs_venv, reward_venv, terminated_venv, truncated_venv, info_venv = (
                     self.venv.step(action_venv)
