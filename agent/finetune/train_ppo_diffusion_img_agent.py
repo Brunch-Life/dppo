@@ -123,7 +123,10 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
 
                 done_venv = terminated_venv | truncated_venv
                 for k in obs_trajs:
-                    obs_trajs[k][step] = prev_obs_venv[k]
+                    # Transpose from (n_cond_step, n_envs, ...) to (n_envs, n_cond_step, ...)
+                    # For 5D tensor: (1, 32, 6, 224, 224) -> (32, 1, 6, 224, 224)
+                    axes = [1, 0] + list(range(2, prev_obs_venv[k].ndim))
+                    obs_trajs[k][step] = prev_obs_venv[k].permute(axes).cpu().numpy()
                 chains_trajs[step] = chains_venv
                 reward_trajs[step] = reward_venv.cpu().numpy()
                 terminated_trajs[step] = terminated_venv.cpu().numpy()

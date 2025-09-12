@@ -158,7 +158,15 @@ class VPGDiffusion(DiffusionModel):
 
         # overwrite noise for fine-tuning steps
         if len(ft_indices) > 0:
-            cond_ft = {key: cond[key][ft_indices] for key in cond}
+            # For cond with shape (n_obs_steps, batch_size, ...), we need to index the second dimension
+            cond_ft = {}
+            for key in cond:
+                if cond[key].ndim >= 2:
+                    # Index batch dimension (second dim) for multi-dimensional tensors
+                    cond_ft[key] = cond[key][:, ft_indices]
+                else:
+                    # For 1D tensors, index directly
+                    cond_ft[key] = cond[key][ft_indices]
             noise_ft = actor(x[ft_indices], t[ft_indices], cond=cond_ft)
             noise[ft_indices] = noise_ft
 
@@ -249,7 +257,8 @@ class VPGDiffusion(DiffusionModel):
         """
         device = self.betas.device
         sample_data = cond["state"] if "state" in cond else cond["rgb"]
-        B = len(sample_data)
+        # Input shape is (n_obs_steps, batch_size, ...), so batch_size is the second dimension
+        B = sample_data.shape[1] if sample_data.ndim > 1 else len(sample_data)
 
         # Get updated minimum sampling denoising std
         min_sampling_denoising_std = self.get_min_sampling_denoising_std()

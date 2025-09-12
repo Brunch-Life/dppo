@@ -333,13 +333,22 @@ class VisionDiffusionMLP(nn.Module):
         x: (B, Ta, Da)
         time: (B,) or int, diffusion step
         cond: dict with key state/rgb; more recent obs at the end
-            state: (B, To, Do)
-            rgb: (B, To, C, H, W)
+            state: (To, B, Do) - changed to (n_steps, batch_size, ...)
+            rgb: (To, B, C, H, W) - changed to (n_steps, batch_size, ...)
 
         TODO long term: more flexible handling of cond
         """
         B, Ta, Da = x.shape
-        _, T_rgb, C, H, W = cond["rgb"].shape
+        
+        # Transpose cond from (n_steps, batch_size, ...) to (batch_size, n_steps, ...)
+        cond_transposed = {}
+        for key, value in cond.items():
+            if value.ndim >= 2:
+                cond_transposed[key] = value.transpose(0, 1)  # (n_steps, B, ...) -> (B, n_steps, ...)
+            else:
+                cond_transposed[key] = value
+        
+        _, T_rgb, C, H, W = cond_transposed["rgb"].shape
 
         # flatten chunk
         x = x.view(B, -1)
@@ -348,10 +357,16 @@ class VisionDiffusionMLP(nn.Module):
         state = torch.zeros(B, 10).to(x.device)
 
         # Take recent images --- sometimes we want to use fewer img_cond_steps than cond_steps (e.g., 1 image but 3 prio)
-        rgb = cond["rgb"][:, -self.img_cond_steps :]
+        rgb = cond_transposed["rgb"][:, -self.img_cond_steps :]
+        
+        # Update T_rgb after slicing
+        _, T_rgb, C, H, W = rgb.shape
 
         # concatenate images in cond by channels
         if self.num_img > 1:
+            # Input rgb already has channels concatenated: (B, T_rgb, num_img*3, H, W)
+            # Reshape to separate images: (B, T_rgb, num_img, 3, H, W)
+            assert C == self.num_img * 3, f"Expected {self.num_img * 3} channels, got {C}"
             rgb = rgb.reshape(B, T_rgb, self.num_img, 3, H, W)
             rgb = einops.rearrange(rgb, "b t n c h w -> b n (t c) h w")
         else:

@@ -48,7 +48,7 @@ class TrainAgent:
             from mani_skill.envs.tasks.tabletop import TabletopPickPlaceEnv
             wrappers = cfg.env.wrappers
             env_kwargs = dict(
-                num_envs=1, #beacause we use make_async to create multiple envs
+                num_envs=cfg.env.n_envs, #beacause we use make_async to create multiple envs
                 obs_mode="rgb+segmentation",
                 control_mode="pd_ee_delta_pose",
                 sim_backend="gpu",
@@ -202,7 +202,7 @@ class TrainAgent:
                 {k: v for k, v in kwargs.items()} for _ in range(self.n_envs)
             ]
         obs_venv = self.venv.reset()
-        
+
         # convert to OrderedDict if obs_venv is a list of dict
         if isinstance(obs_venv, list):
             obs_venv = {

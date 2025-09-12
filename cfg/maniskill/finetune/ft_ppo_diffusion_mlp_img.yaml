@@ -31,7 +31,7 @@ robot_uids: panda_wristcam
 
 
 env:
-  n_envs: 64
+  n_envs: 32
   name: ${env_name}
   object_name: ${object_name}
   container_name: ${container_name}
