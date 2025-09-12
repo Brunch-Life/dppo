@@ -204,3 +204,75 @@ class ViTCritic(CriticObs):
             feat = self.compress.forward(feat, state)
         feat = torch.cat([feat, state], dim=-1)
         return super().forward(feat)
+
+
+class ResNetCritic(CriticObs):
+    """ViT + MLP, state only"""
+
+    def __init__(
+        self,
+        backbone,
+        cond_dim,
+        img_cond_steps=1,
+        spatial_emb=128,
+        dropout=0,
+        augment=False,
+        num_img=1,
+        **kwargs,
+    ):
+        # update input dim to mlp
+        mlp_obs_dim = spatial_emb * num_img + cond_dim
+        super().__init__(cond_dim=mlp_obs_dim, **kwargs)
+        self.backbone = backbone
+        self.num_img = num_img
+        self.img_cond_steps = img_cond_steps
+
+        if augment:
+            self.aug = RandomShiftsAug(pad=4)
+        self.augment = augment
+
+    def forward(
+        self,
+        cond: dict,
+        no_augment=False,
+    ):
+        """
+        cond: dict with key state/rgb; more recent obs at the end
+            state: (B, To, Do)
+            rgb: (B, To, C, H, W)
+        no_augment: whether to skip augmentation
+
+        TODO long term: more flexible handling of cond
+        """
+        B, T_rgb, C, H, W = cond["rgb"].shape
+
+        state = torch.zeros(B, 10)
+
+
+        # Take recent images --- sometimes we want to use fewer img_cond_steps than cond_steps (e.g., 1 image but 3 prio)
+        rgb = cond["rgb"][:, -self.img_cond_steps :]
+
+        # concatenate images in cond by channels
+        if self.num_img > 1:
+            rgb = rgb.reshape(B, T_rgb, self.num_img, 3, H, W)
+            rgb = einops.rearrange(rgb, "b t n c h w -> b n (t c) h w")
+        else:
+            rgb = einops.rearrange(rgb, "b t c h w -> b (t c) h w")
+
+        # convert rgb to float32 for augmentation
+        rgb = rgb.float()
+
+        # get vit output - pass in two images separately
+        if self.num_img > 1:  # TODO: properly handle multiple images
+            rgb1 = rgb[:, 0]
+            rgb2 = rgb[:, 1]
+            if self.augment and not no_augment:
+                rgb1 = self.aug(rgb1)
+                rgb2 = self.aug(rgb2)
+            feat = self.backbone(rgb1, rgb2)
+        else:  # single image
+            if self.augment and not no_augment:
+                rgb = self.aug(rgb)  # uint8 -> float32
+            feat = self.backbone(rgb)
+        feat = torch.cat([feat, state], dim=-1)
+        return super().forward(feat)

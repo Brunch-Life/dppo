@@ -13,7 +13,6 @@ import numpy as np
 from collections import defaultdict, deque
 import torch
 
-
 def stack_repeated(x, n):
     return np.repeat(np.expand_dims(x, axis=0), n, axis=0)
 
@@ -122,12 +121,7 @@ class MultiStep(gym.Wrapper):
         **kwargs,
     ):
         """Resets the environment."""
-        obs = self.env.reset(
-            seed=seed,
-            options=options,
-            return_info=return_info,
-            **kwargs,
-        )
+        obs = self.env.reset(options=options)
         self.obs = deque([obs], maxlen=max(self.n_obs_steps + 1, self.n_action_steps))
         if self.prev_action:
             self.action = deque(

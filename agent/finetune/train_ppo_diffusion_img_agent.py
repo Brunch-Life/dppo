@@ -94,7 +94,7 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                 # Select action
                 with torch.no_grad():
                     cond = {
-                        key: torch.from_numpy(prev_obs_venv[key])
+                        key: prev_obs_venv[key]
                         .float()
                         .to(self.device)
                         for key in self.obs_dims
@@ -112,19 +112,22 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     )  # n_env x denoising x horizon x act
                 action_venv = output_venv[:, : self.act_steps]
 
-
                 # env here
                 # Apply multi-step action
+                # MultiStep wrapper expects (n_action_steps, n_env, action_dim)
+                # We have (n_env, n_action_steps, action_dim), so transpose to get correct shape
+                action_venv = action_venv.transpose(1, 0, 2)  # (n_action_steps, n_env, action_dim)
                 obs_venv, reward_venv, terminated_venv, truncated_venv, info_venv = (
                     self.venv.step(action_venv)
                 )
+
                 done_venv = terminated_venv | truncated_venv
                 for k in obs_trajs:
                     obs_trajs[k][step] = prev_obs_venv[k]
                 chains_trajs[step] = chains_venv
-                reward_trajs[step] = reward_venv
-                terminated_trajs[step] = terminated_venv
-                firsts_trajs[step + 1] = done_venv
+                reward_trajs[step] = reward_venv.cpu().numpy()
+                terminated_trajs[step] = terminated_venv.cpu().numpy()
+                firsts_trajs[step + 1] = done_venv.cpu().numpy()
 
                 # update for next step
                 prev_obs_venv = obs_venv

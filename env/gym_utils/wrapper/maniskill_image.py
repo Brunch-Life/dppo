@@ -33,7 +33,7 @@ class ManiskillImageWrapper(gym.Env):
         render_hw=(256, 256),
         render_camera_name="3rd_view_camera",
         cfg=None,
-    ):    
+    ):
         self.env = env
         self.num_envs = cfg.env.n_envs
         self.init_state = init_state
@@ -73,10 +73,9 @@ class ManiskillImageWrapper(gym.Env):
                 ]
             )
 
-
         # setup spaces
-        low = np.full((self.num_envs,7), fill_value=-1.0, dtype=np.float32)  
-        high = np.full((self.num_envs,7), fill_value=1.0, dtype=np.float32)
+        low = np.full((self.num_envs, 7), fill_value=-1.0, dtype=np.float32)
+        high = np.full((self.num_envs, 7), fill_value=1.0, dtype=np.float32)
         self.action_space = gym.spaces.Box(
             low=low,
             high=high,
@@ -103,6 +102,17 @@ class ManiskillImageWrapper(gym.Env):
             )
             observation_space[key] = this_space
         self.observation_space = observation_space
+        
+        # 480x640 -> 224x224
+        from torchvision import transforms
+        from torch import nn
+        ratio = 0.95
+        original_size = (480, 640)
+        self.transformations = [
+            transforms.RandomCrop(size=[int(original_size[0] * ratio), int(original_size[1] * ratio)]),
+            transforms.Resize((224, 224), antialias=True),
+        ]
+        self.transformations = nn.Sequential(*self.transformations)
 
     def normalize_obs(self, obs):
         obs = 2 * (
@@ -113,32 +123,36 @@ class ManiskillImageWrapper(gym.Env):
         return obs
 
     def unnormalize_action(self, action):
-        action = np.asarray(action) # (B,action_dim)
-        action = action * self.pose_gripper_scale[None, :] + self.pose_gripper_mean[None, :]
-        return action
-
+        action = np.asarray(action)  # (B,action_dim) [-1,1]
+        action = (
+            action * self.pose_gripper_scale[None, :] + self.pose_gripper_mean[None, :]
+        )
+        return action  # [abs]
 
     def get_observation(self, raw_obs):
         obs = {"rgb": None, "state": None}  # stack rgb if multiple cameras
         for key in self.obs_keys:
             if key in self.image_keys:
-                image = raw_obs["sensor_data"][key]["rgb"] # [B, H, W, C]
-                image = image.permute(0, 3, 1, 2) # [B, C, H, W]
+                image = raw_obs["sensor_data"][key]["rgb"]  # [B, H, W, C]
+                image = image.permute(0, 3, 1, 2)  # [B, C, H, W]
                 image = image.float()
+                image = self.transformations(image)
                 if obs["rgb"] is None:
                     obs["rgb"] = image
                 else:
-                    obs["rgb"] = torch.cat(
-                        [obs["rgb"], image], dim=1
-                    )  # (B, C, H, W)
+                    obs["rgb"] = torch.cat([obs["rgb"], image], dim=1)  # (B, C, H, W)
             else:
                 if obs["state"] is None:
                     obs["state"] = raw_obs[key].float()
                 else:
-                    obs["state"] = torch.cat([obs["state"], raw_obs[key].float()], dim=1)
+                    obs["state"] = torch.cat(
+                        [obs["state"], raw_obs[key].float()], dim=1
+                    )
         # if self.normalize:
         #     obs["state"] = self.normalize_obs(obs["state"])
         # obs["rgb"] *= 255  # [0, 1] -> [0, 255], in float64
+        if obs['state'] is None:
+            obs['state'] = torch.zeros(obs['rgb'].shape[0], 10)
         obs["rgb"] = obs["rgb"].float()
 
         return obs
@@ -171,20 +185,24 @@ class ManiskillImageWrapper(gym.Env):
                 self.has_reset_before = True
 
             # always reset to the same state to be compatible with gym
-            raw_obs, info = self.env.reset_to({"states": self.init_state}) # raw_obs: (B, obs_dim)
+            raw_obs, info = self.env.reset_to(
+                {"states": self.init_state}
+            )  # raw_obs: (B, obs_dim)
         elif new_seed is not None:
             self.seed(seed=new_seed)
-            raw_obs, info = self.env.reset() # raw_obs: (B, obs_dim)
+            raw_obs, info = self.env.reset()  # raw_obs: (B, obs_dim)
         else:
             # random reset
-            raw_obs, info = self.env.reset() # raw_obs: (B, obs_dim)
+            raw_obs, info = self.env.reset()  # raw_obs: (B, obs_dim)
         return self.get_observation(raw_obs)
 
     def step(self, action):
         if self.normalize:
-            action = self.unnormalize_action(action) # (B,action_dim)
-        raw_obs, reward, terminated, truncated, info = self.env.step(action) # raw_obs: (B, obs_dim)
-        obs = self.get_observation(raw_obs) # obs: (B, obs_dim)
+            action = self.unnormalize_action(action)  # (B,action_dim)
+        raw_obs, reward, terminated, truncated, info = self.env.step(
+            action
+        )  # raw_obs: (B, obs_dim)
+        obs = self.get_observation(raw_obs)  # obs: (B, obs_dim)
 
         # render if specified
         if self.video_writer is not None:
@@ -202,15 +220,12 @@ if __name__ == "__main__":
     from omegaconf import OmegaConf
     import json
 
-
     cfg = OmegaConf.load("cfg/maniskill/finetune/ft_ppo_diffusion_mlp_img.yaml")
     shape_meta = cfg["shape_meta"]
 
     import matplotlib.pyplot as plt
     from mani_skill.envs.sapien_env import BaseEnv
     from mani_skill.envs.tasks.tabletop import TabletopPickPlaceEnv
-
-
 
     wrappers = cfg.env.wrappers
     obs_modality_dict = {
@@ -229,9 +244,8 @@ if __name__ == "__main__":
         obs_modality_dict.pop("rgb")
     # ObsUtils.initialize_obs_modality_mapping_from_dict(obs_modality_dict)
 
-    
     env_kwargs = dict(
-        num_envs=cfg.env.n_envs, 
+        num_envs=cfg.env.n_envs,
         obs_mode="rgb+segmentation",
         control_mode="pd_ee_delta_pose",
         sim_backend="gpu",
@@ -241,13 +255,12 @@ if __name__ == "__main__":
         },
         max_episode_steps=300,
         sensor_configs={"shader_pack": "default"},
-        is_table_green = False,
+        is_table_green=False,
         render_mode="rgb_array",
     )
 
     if cfg.env.robot_uids is not None:
         env_kwargs["robot_uids"] = tuple(cfg.env.robot_uids.split(","))
-
 
     if cfg.env_name == "TabletopPickPlaceEnv-v1":
         env_kwargs["object_name"] = cfg.env.object_name
@@ -260,7 +273,6 @@ if __name__ == "__main__":
         **env_kwargs,
     )
 
-
     wrapper = ManiskillImageWrapper(
         env=env,
         shape_meta=shape_meta,
@@ -272,8 +284,8 @@ if __name__ == "__main__":
     obs, reward, terminated, truncated, info = wrapper.step(action)
     print(obs.keys())
     print(obs["rgb"].shape)
-    image_3rd = obs["rgb"][0,:3].permute(1, 2, 0).cpu().numpy()
-    image_hand = obs["rgb"][0,3:].permute(1, 2, 0).cpu().numpy()
+    image_3rd = obs["rgb"][0, :3].permute(1, 2, 0).cpu().numpy()
+    image_hand = obs["rgb"][0, 3:].permute(1, 2, 0).cpu().numpy()
     image_3rd = (image_3rd * 255).astype(np.uint8)
     image_hand = (image_hand * 255).astype(np.uint8)
     imageio.imwrite("test_obs_3rd.png", image_3rd)

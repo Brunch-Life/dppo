@@ -76,17 +76,19 @@ class TrainAgent:
                 cfg.env_name,
                 **env_kwargs,
             )
-            env_wrapper = MultiStep(
+            env_wrapper = ManiskillImageWrapper(
                 env=env,
+                shape_meta=cfg.shape_meta,
+                image_keys=cfg.env.wrappers.maniskill_image.image_keys,
+                cfg=cfg,
+            )
+            env_wrapper = MultiStep(
+                env=env_wrapper,
                 n_obs_steps=cfg.env.wrappers.multi_step.n_obs_steps,
                 n_action_steps=cfg.env.wrappers.multi_step.n_action_steps,
                 max_episode_steps=cfg.env.max_episode_steps,
             )
-            env_wrapper = ManiskillImageWrapper(
-                env=env_wrapper,
-                shape_meta=cfg.shape_meta,
-                image_keys=cfg.env.wrappers.maniskill_image.image_keys,
-            )
+
 
             
             self.venv = env_wrapper
@@ -199,7 +201,8 @@ class TrainAgent:
             options_venv = [
                 {k: v for k, v in kwargs.items()} for _ in range(self.n_envs)
             ]
-        obs_venv = self.venv.reset_arg(options_list=options_venv)
+        obs_venv = self.venv.reset()
+        
         # convert to OrderedDict if obs_venv is a list of dict
         if isinstance(obs_venv, list):
             obs_venv = {

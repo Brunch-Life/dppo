@@ -1,189 +1,485 @@
 from dataclasses import dataclass
-from typing import List
+from typing import List, Callable
 import torch
 import torch.nn as nn
 import math
 import einops
 from torchvision import models as vision_models
 
-
-@dataclass
-class ResNetEncoderConfig:
-    """ResNet编码器配置参数"""
-
-    pretrained: bool = False
-    input_coord_conv: bool = False
-    # 可以根据需要添加更多ResNet相关配置参数
+from diffusers.training_utils import EMAModel
 
 
-class ResNetEncoder(nn.Module):
-    """ResNet图像编码器，保持与ViTEncoder兼容的接口"""
 
-    def __init__(
-        self,
-        obs_shape: List[int],
-        cfg: ResNetEncoderConfig,
-        num_channel=3,
-        img_h=96,
-        img_w=96,
-    ):
-        super().__init__()
-        self.obs_shape = obs_shape
-        self.cfg = cfg
-        self.num_channel = num_channel
-        self.img_h = img_h
-        self.img_w = img_w
+import abc
+import numpy as np
+import torch.nn.functional as F
 
-        # 初始化ResNet18
-        self.resnet = self._build_resnet()
 
-        # 计算特征相关维度信息
-        self.num_features = 512  # ResNet18最后一层的输出通道数
-        output_shape = self.output_shape(obs_shape)
-        self.num_patches = output_shape[1] * output_shape[2]  # 空间维度的乘积
-        self.patch_repr_dim = self.num_features
-        self.repr_dim = self.num_features * self.num_patches  # 展平后的总维度
+# =================== Vision Encoder Utils =====================
+def replace_submodules(
+        root_module: nn.Module, 
+        predicate: Callable[[nn.Module], bool], 
+        func: Callable[[nn.Module], nn.Module]) -> nn.Module:
+    """
+    Replace all submodules selected by the predicate with
+    the output of func.
 
-    def _build_resnet(self):
-        """构建ResNet18网络结构"""
-        # 加载ResNet18，可选择预训练权重
-        net = vision_models.resnet18(pretrained=self.cfg.pretrained)
+    predicate: Return true if the module is to be replaced.
+    func: Return new module to use.
+    """
+    if predicate(root_module):
+        return func(root_module)
 
-        # 处理输入通道数和坐标卷积
-        if self.cfg.input_coord_conv:
-            # 使用坐标卷积替换第一个卷积层
-            net.conv1 = CoordConv2d(
-                self.num_channel, 64, kernel_size=7, stride=2, padding=3, bias=False
-            )
-        elif self.num_channel != 3:
-            # 调整第一个卷积层以适应不同的输入通道数
-            net.conv1 = nn.Conv2d(
-                self.num_channel, 64, kernel_size=7, stride=2, padding=3, bias=False
-            )
 
-        # 移除最后的全连接层和平均池化层，保留卷积部分
-        return nn.Sequential(*(list(net.children())[:-2]))
 
-    def forward(self, obs, flatten=False) -> torch.Tensor:
+    bn_list = [k.split('.') for k, m 
+        in root_module.named_modules(remove_duplicate=True) 
+        if predicate(m)]
+    for *parent, k in bn_list:
+        parent_module = root_module
+        if len(parent) > 0:
+            parent_module = root_module.get_submodule('.'.join(parent))
+        if isinstance(parent_module, nn.Sequential):
+            src_module = parent_module[int(k)]
+        else:
+            src_module = getattr(parent_module, k)
+        tgt_module = func(src_module)
+        if isinstance(parent_module, nn.Sequential):
+            parent_module[int(k)] = tgt_module
+        else:
+            setattr(parent_module, k, tgt_module)
+    # verify that all modules are replaced
+    bn_list = [k.split('.') for k, m 
+        in root_module.named_modules(remove_duplicate=True) 
+        if predicate(m)]
+    assert len(bn_list) == 0
+    return root_module
+
+def replace_bn_with_gn(
+    root_module: nn.Module, 
+    features_per_group: int=16) -> nn.Module:
+    """
+    Relace all BatchNorm layers with GroupNorm.
+    """
+    replace_submodules(
+        root_module=root_module,
+        predicate=lambda x: isinstance(x, nn.BatchNorm2d),
+        func=lambda x: nn.GroupNorm(
+            num_groups=x.num_features//features_per_group, 
+            num_channels=x.num_features)
+    )
+    return root_module
+
+
+
+
+class Module(torch.nn.Module):
+    """
+    Base class for networks. The only difference from torch.nn.Module is that it
+    requires implementing @output_shape.
+    """
+    @abc.abstractmethod
+    def output_shape(self, input_shape=None):
         """
-        前向传播函数
+        Function to compute output shape from inputs to this module. 
 
         Args:
-            obs: 输入图像，形状为 [batch, channels, height, width]
-            flatten: 是否将输出展平为 [batch, num_features * num_patches]
+            input_shape (iterable of int): shape of input. Does not include batch dimension.
+                Some modules may not need this argument, if their output does not depend 
+                on the size of the input, or if they assume fixed size input.
 
         Returns:
-            编码后的特征
+            out_shape ([int]): list of integers corresponding to output shape
         """
-        # 图像归一化 (与ViT保持一致的预处理)
-        obs = obs / 255.0 - 0.5
+        raise NotImplementedError
 
-        # 通过ResNet提取特征
-        feats = self.resnet(obs)  # 形状: [batch, 512, h, w]
+class ConvBase(Module):
+    """
+    Base class for ConvNets.
+    """
+    def __init__(self):
+        super(ConvBase, self).__init__()
 
-        # 转换为 [batch, num_patches, patch_repr_dim] 格式，与ViT输出格式对齐
-        feats = einops.rearrange(feats, "b c h w -> b (h w) c")
+    # dirty hack - re-implement to pass the buck onto subclasses from ABC parent
+    def output_shape(self, input_shape):
+        """
+        Function to compute output shape from inputs to this module. 
 
-        # 如果需要展平为一维特征
-        if flatten:
-            feats = feats.flatten(1, 2)
+        Args:
+            input_shape (iterable of int): shape of input. Does not include batch dimension.
+                Some modules may not need this argument, if their output does not depend 
+                on the size of the input, or if they assume fixed size input.
 
-        return feats
+        Returns:
+            out_shape ([int]): list of integers corresponding to output shape
+        """
+        raise NotImplementedError
+
+    def forward(self, inputs):
+        x = self.nets(inputs)
+        if list(self.output_shape(list(inputs.shape)[1:])) != list(x.shape)[1:]:
+            raise ValueError('Size mismatch: expect size %s, but got size %s' % (
+                str(self.output_shape(list(inputs.shape)[1:])), str(list(x.shape)[1:]))
+            )
+        return x
+
+class SpatialSoftmax(ConvBase):
+    """
+    Spatial Softmax Layer.
+
+    Based on Deep Spatial Autoencoders for Visuomotor Learning by Finn et al.
+    https://rll.berkeley.edu/dsae/dsae.pdf
+    """
+    def __init__(
+        self,
+        input_shape,
+        num_kp=32,
+        temperature=1.,
+        learnable_temperature=False,
+        output_variance=False,
+        noise_std=0.0,
+    ):
+        """
+        Args:
+            input_shape (list): shape of the input feature (C, H, W)
+            num_kp (int): number of keypoints (None for not using spatialsoftmax)
+            temperature (float): temperature term for the softmax.
+            learnable_temperature (bool): whether to learn the temperature
+            output_variance (bool): treat attention as a distribution, and compute second-order statistics to return
+            noise_std (float): add random spatial noise to the predicted keypoints
+        """
+        super(SpatialSoftmax, self).__init__()
+        assert len(input_shape) == 3
+        self._in_c, self._in_h, self._in_w = input_shape # (C, H, W)
+
+        if num_kp is not None:
+            self.nets = torch.nn.Conv2d(self._in_c, num_kp, kernel_size=1)
+            self._num_kp = num_kp
+        else:
+            self.nets = None
+            self._num_kp = self._in_c
+        self.learnable_temperature = learnable_temperature
+        self.output_variance = output_variance
+        self.noise_std = noise_std
+
+        if self.learnable_temperature:
+            # temperature will be learned
+            temperature = torch.nn.Parameter(torch.ones(1) * temperature, requires_grad=True)
+            self.register_parameter('temperature', temperature)
+        else:
+            # temperature held constant after initialization
+            temperature = torch.nn.Parameter(torch.ones(1) * temperature, requires_grad=False)
+            self.register_buffer('temperature', temperature)
+
+        pos_x, pos_y = np.meshgrid(
+                np.linspace(-1., 1., self._in_w),
+                np.linspace(-1., 1., self._in_h)
+                )
+        pos_x = torch.from_numpy(pos_x.reshape(1, self._in_h * self._in_w)).float()
+        pos_y = torch.from_numpy(pos_y.reshape(1, self._in_h * self._in_w)).float()
+        self.register_buffer('pos_x', pos_x)
+        self.register_buffer('pos_y', pos_y)
+
+        self.kps = None
+
+    def __repr__(self):
+        """Pretty print network."""
+        header = format(str(self.__class__.__name__))
+        return header + '(num_kp={}, temperature={}, noise={})'.format(
+            self._num_kp, self.temperature.item(), self.noise_std)
 
     def output_shape(self, input_shape):
         """
-        计算输出特征的形状
+        Function to compute output shape from inputs to this module. 
 
         Args:
-            input_shape: 输入形状，格式为 [channels, height, width]
+            input_shape (iterable of int): shape of input. Does not include batch dimension.
+                Some modules may not need this argument, if their output does not depend 
+                on the size of the input, or if they assume fixed size input.
 
         Returns:
-            输出特征形状，格式为 [num_features, out_h, out_w]
+            out_shape ([int]): list of integers corresponding to output shape
         """
-        assert len(input_shape) == 3, "输入形状应为 [channels, height, width]"
-        # ResNet18的总步长为32
-        out_h = int(math.ceil(input_shape[1] / 32.0))
-        out_w = int(math.ceil(input_shape[2] / 32.0))
-        return [self.num_features, out_h, out_w]
+        assert(len(input_shape) == 3)
+        assert(input_shape[0] == self._in_c)
+        return [self._num_kp, 2]
 
-
-class CoordConv2d(nn.Conv2d):
-    """坐标卷积层，在输入特征中添加坐标信息"""
-
-    def __init__(self, in_channels, out_channels, *args, **kwargs):
-        super().__init__(in_channels + 2, out_channels, *args, **kwargs)
-        self.in_channels = in_channels
-
-    def forward(self, x):
+    def forward(self, feature):
         """
-        添加x和y坐标通道到输入中
+        Forward pass through spatial softmax layer. For each keypoint, a 2D spatial 
+        probability distribution is created using a softmax, where the support is the 
+        pixel locations. This distribution is used to compute the expected value of 
+        the pixel location, which becomes a keypoint of dimension 2. K such keypoints
+        are created.
+
+        Returns:
+            out (torch.Tensor or tuple): mean keypoints of shape [B, K, 2], and possibly
+                keypoint variance of shape [B, K, 2, 2] corresponding to the covariance
+                under the 2D spatial softmax distribution
+        """
+        assert(feature.shape[1] == self._in_c)
+        assert(feature.shape[2] == self._in_h)
+        assert(feature.shape[3] == self._in_w)
+        if self.nets is not None:
+            feature = self.nets(feature)
+
+        # [B, K, H, W] -> [B * K, H * W] where K is number of keypoints
+        feature = feature.reshape(-1, self._in_h * self._in_w)
+        # 2d softmax normalization
+        attention = F.softmax(feature / self.temperature, dim=-1)
+        # [1, H * W] x [B * K, H * W] -> [B * K, 1] for spatial coordinate mean in x and y dimensions
+        expected_x = torch.sum(self.pos_x * attention, dim=1, keepdim=True)
+        expected_y = torch.sum(self.pos_y * attention, dim=1, keepdim=True)
+        # stack to [B * K, 2]
+        expected_xy = torch.cat([expected_x, expected_y], 1)
+        # reshape to [B, K, 2]
+        feature_keypoints = expected_xy.view(-1, self._num_kp, 2)
+
+        if self.training:
+            noise = torch.randn_like(feature_keypoints) * self.noise_std
+            feature_keypoints += noise
+
+        if self.output_variance:
+            # treat attention as a distribution, and compute second-order statistics to return
+            expected_xx = torch.sum(self.pos_x * self.pos_x * attention, dim=1, keepdim=True)
+            expected_yy = torch.sum(self.pos_y * self.pos_y * attention, dim=1, keepdim=True)
+            expected_xy = torch.sum(self.pos_x * self.pos_y * attention, dim=1, keepdim=True)
+            var_x = expected_xx - expected_x * expected_x
+            var_y = expected_yy - expected_y * expected_y
+            var_xy = expected_xy - expected_x * expected_y
+            # stack to [B * K, 4] and then reshape to [B, K, 2, 2] where last 2 dims are covariance matrix
+            feature_covar = torch.cat([var_x, var_xy, var_xy, var_y], 1).reshape(-1, self._num_kp, 2, 2)
+            feature_keypoints = (feature_keypoints, feature_covar)
+
+        if isinstance(feature_keypoints, tuple):
+            self.kps = (feature_keypoints[0].detach(), feature_keypoints[1].detach())
+        else:
+            self.kps = feature_keypoints.detach()
+        return feature_keypoints
+
+class CoordConv2d(nn.Conv2d, Module):
+    """
+    2D Coordinate Convolution
+
+    Source: An Intriguing Failing of Convolutional Neural Networks and the CoordConv Solution
+    https://arxiv.org/abs/1807.03247
+    (e.g. adds 2 channels per input feature map corresponding to (x, y) location on map)
+    """
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups=1,
+        bias=True,
+        padding_mode='zeros',
+        coord_encoding='position',
+    ):
+        """
+        Args:
+            in_channels: number of channels of the input tensor [C, H, W]
+            out_channels: number of output channels of the layer
+            kernel_size: convolution kernel size
+            stride: conv stride
+            padding: conv padding
+            dilation: conv dilation
+            groups: conv groups
+            bias: conv bias
+            padding_mode: conv padding mode
+            coord_encoding: type of coordinate encoding. currently only 'position' is implemented
+        """
+
+        assert(coord_encoding in ['position'])
+        self.coord_encoding = coord_encoding
+        if coord_encoding == 'position':
+            in_channels += 2  # two extra channel for positional encoding
+            self._position_enc = None  # position encoding
+        else:
+            raise Exception("CoordConv2d: coord encoding {} not implemented".format(self.coord_encoding))
+        nn.Conv2d.__init__(
+            self,
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            bias=bias,
+            padding_mode=padding_mode
+        )
+
+    def output_shape(self, input_shape):
+        """
+        Function to compute output shape from inputs to this module. 
 
         Args:
-            x: 输入张量，形状为 [batch, channels, height, width]
+            input_shape (iterable of int): shape of input. Does not include batch dimension.
+                Some modules may not need this argument, if their output does not depend 
+                on the size of the input, or if they assume fixed size input.
 
         Returns:
-            添加坐标信息后的特征图
+            out_shape ([int]): list of integers corresponding to output shape
         """
-        batch_size, _, height, width = x.size()
 
-        # 创建坐标通道
-        x_coord = torch.linspace(-1, 1, width, device=x.device)
-        y_coord = torch.linspace(-1, 1, height, device=x.device)
-        x_coord = x_coord.repeat(batch_size, height, 1).unsqueeze(1)  # [B, 1, H, W]
-        y_coord = (
-            y_coord.repeat(batch_size, width, 1).transpose(1, 2).unsqueeze(1)
-        )  # [B, 1, H, W]
+        # adds 2 to channel dimension
+        return [input_shape[0] + 2] + input_shape[1:]
 
-        # 拼接原始特征和坐标特征
-        x_with_coord = torch.cat([x, x_coord, y_coord], dim=1)
+    def forward(self, input):
+        b, c, h, w = input.shape
+        if self.coord_encoding == 'position':
+            if self._position_enc is None:
+                pos_y, pos_x = torch.meshgrid(torch.arange(h), torch.arange(w))
+                pos_y = pos_y.float().to(input.device) / float(h)
+                pos_x = pos_x.float().to(input.device) / float(w)
+                self._position_enc = torch.stack((pos_y, pos_x)).unsqueeze(0)
+            pos_enc = self._position_enc.expand(b, -1, -1, -1)
+            input = torch.cat((input, pos_enc), dim=1)
+        return super(CoordConv2d, self).forward(input)
 
-        return super().forward(x_with_coord)
 
 
-# 测试代码
-if __name__ == "__main__":
-    # 测试ResNet编码器
-    obs_shape = [3, 224, 224]  # [通道数, 高度, 宽度]
-    cfg = ResNetEncoderConfig(pretrained=False)
 
-    enc = ResNetEncoder(
-        obs_shape,
-        cfg,
-        num_channel=obs_shape[0],
-        img_h=obs_shape[1],
-        img_w=obs_shape[2],
-    )
+class ResNet18Conv(ConvBase):
+    """
+    A ResNet18 block that can be used to process input images.
+    """
+    def __init__(
+        self,
+        input_channel=3,
+        pretrained=False,
+        input_coord_conv=False,
+    ):
+        """
+        Args:
+            input_channel (int): number of input channels for input images to the network.
+                If not equal to 3, modifies first conv layer in ResNet to handle the number
+                of input channels.
+            pretrained (bool): if True, load pretrained weights for all ResNet layers.
+            input_coord_conv (bool): if True, use a coordinate convolution for the first layer
+                (a convolution where input channels are modified to encode spatial pixel location)
+        """
+        super(ResNet18Conv, self).__init__()
+        net = vision_models.resnet18(pretrained=pretrained)
 
-    print(enc)
-    checkpoint = torch.load(
-        "/ML-vePFS/tangyinzhou/yinuo/dp_train_zhiting/ckpts/20250904_131139/policy_step_200000_seed_0.ckpt",
-        map_location=torch.device("cpu"),
-    )
-    ckpt_state_dict = checkpoint["nets"]  # 从 'nets' 中提取完整状态字典
-    prefix_to_remove = "policy.backbones.0.nets."
-    model_state_dict = enc.state_dict()
-    new_state_dict = {}
+        if input_coord_conv:
+            net.conv1 = CoordConv2d(input_channel, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        elif input_channel != 3:
+            net.conv1 = nn.Conv2d(input_channel, 64, kernel_size=7, stride=2, padding=3, bias=False)
 
-    # 收集所有需要加载的参数键
-    for ckpt_key in ckpt_state_dict.keys():
-        if ckpt_key.startswith(prefix_to_remove):
-            # 裁剪前缀并构建模型键
-            model_key = ckpt_key[len(prefix_to_remove) :]
-            model_key = f"resnet.{model_key}"
+        # cut the last fc layer
+        self._input_coord_conv = input_coord_conv
+        self._input_channel = input_channel
+        self.nets = torch.nn.Sequential(*(list(net.children())[:-2]))
 
-            # 检查模型是否有这个键，确保形状匹配
-            if model_key in model_state_dict:
-                if ckpt_state_dict[ckpt_key].shape == model_state_dict[model_key].shape:
-                    new_state_dict[model_key] = ckpt_state_dict[ckpt_key]
-                else:
-                    print(f"形状不匹配，跳过: {model_key}")
-            else:
-                print(f"模型中不存在该键，跳过: {model_key}")
+    def output_shape(self, input_shape):
+        """
+        Function to compute output shape from inputs to this module. 
 
-    # 4. 加载参数
-    enc.load_state_dict(new_state_dict, strict=False)
-    print(f"成功加载 {len(new_state_dict)}/{len(model_state_dict)} 个参数")
-    x = torch.rand(1, *obs_shape) * 255  # 生成随机图像输入
-    print("输出形状 (未展平):", enc(x, flatten=False).size())
-    print("输出形状 (展平):", enc(x, flatten=True).size())
-    print("特征维度:", enc.repr_dim)
+        Args:
+            input_shape (iterable of int): shape of input. Does not include batch dimension.
+                Some modules may not need this argument, if their output does not depend 
+                on the size of the input, or if they assume fixed size input.
+
+        Returns:
+            out_shape ([int]): list of integers corresponding to output shape
+        """
+        assert(len(input_shape) == 3)
+        out_h = int(math.ceil(input_shape[1] / 32.))
+        out_w = int(math.ceil(input_shape[2] / 32.))
+        return [512, out_h, out_w]
+
+    def __repr__(self):
+        """Pretty print network."""
+        header = '{}'.format(str(self.__class__.__name__))
+        return header + '(input_channel={}, input_coord_conv={})'.format(self._input_channel, self._input_coord_conv)
+
+
+class ResNetEncoder(nn.Module):
+    """
+    A ResNet encoder that can be used to process input images.
+    """
+    def __init__(
+        self,
+        input_channel=3,
+        pretrained=False,
+        input_coord_conv=False,
+    ):
+        super().__init__()
+
+        self.num_images = 2
+        self.num_kp = 32
+        self.feature_dimension = 64
+
+        
+        backbones = []
+        pools = []
+        linears = []
+        for _ in range(self.num_images):
+            backbones.append(
+                ResNet18Conv(
+                    **{
+                        'input_channel': 3,
+                        'pretrained': pretrained,
+                        'input_coord_conv': input_coord_conv
+                    }
+                )
+            )
+            pools.append(
+                SpatialSoftmax(
+                    **{
+                        # 'input_shape': [512, 8, 10], # for (240, 320)
+                        'input_shape': [512, 7, 7],  # for (224, 224)
+                        'num_kp': self.num_kp,
+                        'temperature': 1.0,
+                        'learnable_temperature': False,
+                        'noise_std': 0.0
+                    }
+                )
+            )
+            linears.append(
+                torch.nn.Linear(int(np.prod([self.num_kp, 2])), self.feature_dimension)
+            )
+
+        backbones = nn.ModuleList(backbones)
+        pools = nn.ModuleList(pools)
+        linears = nn.ModuleList(linears)
+
+        backbones = replace_bn_with_gn(backbones)  # TODO
+
+
+
+        nets = nn.ModuleDict({
+            'policy': nn.ModuleDict({
+                'backbones': backbones,
+                'pools': pools,
+                'linears': linears,
+            })
+        })
+
+        nets = nets.float().cuda()
+        ENABLE_EMA = True
+        if ENABLE_EMA:
+            ema = EMAModel(model=nets, power=0.75)
+        else:
+            ema = None
+        self.nets = nets
+        self.ema = ema
+
+        
+
+
+    def forward(self, rgb1, rgb2):
+        feats1 = self.nets['policy']['backbones'][0](rgb1)
+        feats2 = self.nets['policy']['backbones'][1](rgb2)
+        feats1 = self.nets['policy']['pools'][0](feats1)
+        feats2 = self.nets['policy']['pools'][1](feats2)
+        feats1 = torch.flatten(feats1, start_dim=1)
+        feats2 = torch.flatten(feats2, start_dim=1)
+        feats1 = self.nets['policy']['linears'][0](feats1)
+        feats2 = self.nets['policy']['linears'][1](feats2)
+        feats = torch.cat([feats1, feats2], dim=-1)
+        return feats
