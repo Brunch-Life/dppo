@@ -302,6 +302,7 @@ class VPGDiffusion(DiffusionModel):
                 -self.randn_clip_value, self.randn_clip_value
             )
             x = mean + std * noise
+            # x = mean
 
             # clamp action at final step
             if self.final_action_clip_value is not None and i == len(t_all) - 1:

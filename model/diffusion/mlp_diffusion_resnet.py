@@ -350,11 +350,11 @@ class VisionDiffusionMLP(nn.Module):
         
         _, T_rgb, C, H, W = cond_transposed["rgb"].shape
 
-        # flatten chunk
-        x = x.view(B, -1)
-
         # flatten history
-        state = torch.zeros(B, 10).to(x.device)
+        # state = torch.zeros(B, 10).to(x.device)
+        state = torch.tensor([[-2.68780708e+00, 6.87680533e-03, -1.23791146e+00, -9.68018115e-01,
+                               -3.46124172e-02, -3.46130505e-02,  9.67813313e-01,  1.48297912e-02,
+                               1.70214221e-01,  0.00000000e+00]]).repeat(B, 1).to(x.device)
 
         # Take recent images --- sometimes we want to use fewer img_cond_steps than cond_steps (e.g., 1 image but 3 prio)
         rgb = cond_transposed["rgb"][:, -self.img_cond_steps :]
@@ -384,43 +384,21 @@ class VisionDiffusionMLP(nn.Module):
             raise NotImplementedError
 
         cond_encoded = torch.cat([feat, state], dim=-1)
+        
+        # import numpy as np
+        # data_check = np.load("./debug/data2.npy", allow_pickle=True).item()
+        # print("true:", data_check["obs_cond"])
+        # print("pred:", cond_encoded)
+        # exit(0)
 
-        # initialize action from Guassian noise
-        noisy_action = torch.randn(
-            (B, Ta, Da), device=cond_encoded.device)
-        naction = noisy_action
+        noise_pred = self.noise_pred_net(
+            sample=x,
+            timestep=time,
+            global_cond=cond_encoded
+        )
 
-
-
-
-
-        # init scheduler
-        self.noise_scheduler.set_timesteps(self.num_inference_timesteps)
-
-        for k in self.noise_scheduler.timesteps:
-            # print(naction.shape, obs_cond.shape)
-            # predict noise
-            noise_pred = self.noise_pred_net(
-                sample=naction,
-                timestep=k,
-                global_cond=cond_encoded
-            )
-
-            # print(noise_pred.shape)
-
-            # inverse diffusion step (remove noise)
-            naction = self.noise_scheduler.step(
-                model_output=noise_pred,
-                timestep=k,
-                sample=naction
-            ).prev_sample
-
-
-        assert naction.shape == (B, Ta, Da)
-
-        return naction
-
-
+        return noise_pred
+        
 # class DiffusionMLP(nn.Module):
 
 #     def __init__(

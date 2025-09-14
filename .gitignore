@@ -147,3 +147,7 @@ cfg/robomimic/*.sh
 *.out
 
 *.png
+debug/action.npy
+debug/data2.npy
+debug/data.npy
+debug/data3.npy

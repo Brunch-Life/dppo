@@ -58,6 +58,42 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
             self.model.eval() if eval_mode else self.model.train()
             last_itr_eval = eval_mode
 
+            # # eval
+            # self.model.eval()
+            # data_dict = np.load("./debug/data.npy", allow_pickle=True).item()
+
+            # print("image_data:", data_dict["image_data"].reshape(1, 1, 6, 224, 224))
+
+            # # print("shape check:", data_dict["image_data"].shape, data_dict["qpos_data"].shape, data_dict["pred_actions"].shape)
+            # image_data = data_dict["image_data"].reshape(1, 1, 6, 224, 224)
+            # qpos_data = data_dict["qpos_data"].reshape(1, 1, 10)
+            # # print("shape check:", image_data.shape, qpos_data.shape, data_dict["pred_actions"].shape)
+            # cond = {
+            #     "rgb": torch.from_numpy(image_data).float().to(self.device),
+            #     "state": torch.from_numpy(qpos_data).float().to(self.device),
+            # }
+            
+            # samples = self.model(
+            #     cond=cond,
+            #     deterministic=eval_mode,
+            #     return_chain=True,
+            # )
+            
+            # print("predict_actions:", data_dict["pred_actions"])
+            # print("model actions:", samples.trajectories.cpu().numpy())
+            
+            # # data_dict_2 = np.load("./debug/data2.npy", allow_pickle=True).item()
+            # # print("check:", data_dict_2["naction"].shape, data_dict_2["obs_cond"].shape, data_dict_2["k"], data_dict_2["noise_pred"].shape)
+            
+            # # print("cond_true:", data_dict_2["obs_cond"])
+            
+            # # noise_pred = self.model.actor(torch.tensor(data_dict_2["naction"]).float().to(self.device), 
+            # #                               torch.tensor([0]).float().to(self.device), 
+            # #                               cond=cond)
+            # # print("noise_pred:", noise_pred.cpu().numpy())
+            # # print("true noise:", data_dict_2["noise_pred"])
+            # exit(0)
+
             # Reset env before iteration starts (1) if specified, (2) at eval mode, or (3) right after eval mode
             firsts_trajs = np.zeros((self.n_steps + 1, self.n_envs))
             if self.reset_at_iteration or eval_mode or last_itr_eval:
@@ -93,12 +129,51 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
 
                 # Select action
                 with torch.no_grad():
+                    
+                    # device = prev_obs_venv["rgb"].device
+                    
+                    # data_dict = np.load("./debug/data3.npy", allow_pickle=True).item()
+                    # image_list = data_dict["image_data"]
+                    # # print("shape:", image_list.shape)
+                    # raw_obs = {
+                    #     "sensor_data": {
+                    #         "3rd_view_camera": {
+                    #             "rgb": torch.tensor(image_list[0]).to(device),
+                    #         },
+                    #         "hand_camera": {
+                    #             "rgb": torch.tensor(image_list[1]).to(device),
+                    #         },
+                    #     }
+                    # }
+                    # # raw_obs['sensor_data']["3rd_view_camera"]['rgb'] = image_list[0]
+                    # # raw_obs['sensor_data']["hand_camera"]['rgb'] = image_list[1]
+                    # prev_obs_venv = self.venv.env.get_observation(raw_obs)
+                    
+                    # save_dir = "./debug/img/"
+                    # os.makedirs(save_dir, exist_ok=True)
+                    # for i in range(prev_obs_venv["rgb"].shape[2]):
+                    #     image = prev_obs_venv["rgb"][0, 0, i].cpu().numpy()
+                    #     print("image:", image.shape)
+                    #     image = image.transpose(1, 2, 0)
+                    #     image = (image * 255).astype(np.uint8)
+                    #     import cv2
+                    #     cv2.imwrite(f"{save_dir}/img_{step}_{i}.png", image)
+                    
+                    prev_obs_venv["rgb"] = prev_obs_venv["rgb"].reshape(-1, 1, 6, 224, 224)
+                     
                     cond = {
                         key: prev_obs_venv[key]
                         .float()
                         .to(self.device)
                         for key in self.obs_dims
                     }  # batch each type of obs and put into dict
+                    # cond["rgb"] = cond["rgb"].float() / 255.0
+                    
+                    # data_dict = np.load("./debug/data3.npy", allow_pickle=True).item()
+                    
+                    # print("check obs:", data_dict["obs_image"].shape, cond["rgb"].shape)
+                    # exit(0)
+                    
                     samples = self.model(
                         cond=cond,
                         deterministic=eval_mode,
@@ -107,6 +182,18 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     output_venv = (
                         samples.trajectories.cpu().numpy()
                     )  # n_env x horizon x act
+                    
+                    # action_check = np.load("./debug/data3.npy", allow_pickle=True).item()
+                    # print("????????:", action_check["raw_actions"])
+                    # # print("output_venv:", output_venv)
+                    # print("???:", self.venv.env.unnormalize_action(output_venv))
+                    # print("delta:", self.venv.env.unnormalize_action(output_venv) - action_check["raw_actions"])
+                    # exit(0)
+                    
+                    # print("output_venv:", output_venv)
+                    # print("???:", self.venv.env.action_transform(self.venv.env.unnormalize_action(output_venv[0, 0:4])))
+                    # exit(0)
+                    
                     chains_venv = (
                         samples.chains.cpu().numpy()
                     )  # n_env x denoising x horizon x act

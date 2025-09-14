@@ -19,6 +19,7 @@ import torch
 from mani_skill.utils.structs.pose import Pose
 from mani_skill.evaluation.policies.diffusion_policy.dp_modules.utils.math import get_pose_from_rot_pos_batch
 from mani_skill.utils.geometry.rotation_conversions import matrix_to_euler_angles
+from torchvision import transforms
 
 
 
@@ -49,6 +50,8 @@ class ManiskillImageWrapper(gym.Env):
         self.record_video = False
         self.clamp_obs = clamp_obs
         self.cfg = cfg
+        
+        self.debug_cnt = 0
         # set up normalization
         self.normalize = normalization_path is not None
         if self.normalize:
@@ -110,7 +113,6 @@ class ManiskillImageWrapper(gym.Env):
         self.observation_space = observation_space
         
         # 480x640 -> 224x224
-        from torchvision import transforms
         from torch import nn
         ratio = 0.95
         original_size = (480, 640)
@@ -173,16 +175,40 @@ class ManiskillImageWrapper(gym.Env):
 
     def get_observation(self, raw_obs):
         obs = {"rgb": None, "state": None}  # stack rgb if multiple cameras
+        
+        image_list = []
+        for key in self.obs_keys:
+            image_list.append(raw_obs['sensor_data'][key]['rgb'].to(torch.uint8).cpu().numpy())
+        
+        image_list = np.asarray(image_list)  # (M, B, H, W, C)
+        M, B, H, W, C = image_list.shape
+
+        image_data = torch.from_numpy(image_list)  # (M, B, H, W, C)
+        image_data = image_data.permute(1, 0, 4, 2, 3)  # (B, M, C, H, W)
+        image_data = image_data.reshape(B * M, C, H, W)
+        try:
+            for transform in self.transformations:
+                image_data = transform(image_data)
+                # print(front.shape, goal.shape)
+        except Exception as e:
+            print(e)
+
+        image_data = image_data.view(B, M, C, 224, 224)
+
+        # imageio.imwrite("test_obs_3rd.png", image_data[0][0].permute(1, 2, 0).cpu().numpy())
+        # imageio.imwrite("test_obs_wrist.png", image_data[0][1].permute(1, 2, 0).cpu().numpy())
+        image_data = image_data.float() / 255.0  # [0,1]
         for key in self.obs_keys:
             if key in self.image_keys:
-                image = raw_obs["sensor_data"][key]["rgb"]  # [B, H, W, C]
-                image = image.permute(0, 3, 1, 2)  # [B, C, H, W]
-                image = image.float()
-                image = self.transformations(image)
-                if obs["rgb"] is None:
-                    obs["rgb"] = image
-                else:
-                    obs["rgb"] = torch.cat([obs["rgb"], image], dim=1)  # (B, C, H, W)
+                pass
+                # image = raw_obs["sensor_data"][key]["rgb"]  # [B, H, W, C]
+                # image = image.permute(0, 3, 1, 2)  # [B, C, H, W]
+                # image = image.float()
+                # image = self.transformations(image)
+                # if obs["rgb"] is None:
+                #     obs["rgb"] = image
+                # else:
+                #     obs["rgb"] = torch.cat([obs["rgb"], image], dim=1)  # (B, C, H, W)
             else:
                 if obs["state"] is None:
                     obs["state"] = raw_obs[key].float()
@@ -190,12 +216,18 @@ class ManiskillImageWrapper(gym.Env):
                     obs["state"] = torch.cat(
                         [obs["state"], raw_obs[key].float()], dim=1
                     )
+                    
         # if self.normalize:
         #     obs["state"] = self.normalize_obs(obs["state"])
+            
         # obs["rgb"] *= 255  # [0, 1] -> [0, 255], in float64
+        obs["rgb"] = torch.tensor(image_data).float().to(raw_obs['sensor_data'][self.image_keys[0]]['rgb'].device) # obs["rgb"].float()
         if obs['state'] is None:
             obs['state'] = torch.zeros(obs['rgb'].shape[0], 10).to(obs['rgb'].device)
-        obs["rgb"] = obs["rgb"].float()
+        
+        
+        # imageio.imwrite("test_obs_3rd.png", obs["rgb"][0, :3].permute(1, 2, 0).cpu().numpy().astype(np.uint8))
+        # imageio.imwrite("test_obs_hand.png", obs["rgb"][0, 3:].permute(1, 2, 0).cpu().numpy().astype(np.uint8)) 
 
         return obs
 
@@ -212,7 +244,6 @@ class ManiskillImageWrapper(gym.Env):
             self.video_writer.close()
             self.video_writer = None
 
-
         if self.record_video:
             self.save_video(options["video_path"])
 
@@ -225,10 +256,14 @@ class ManiskillImageWrapper(gym.Env):
         new_seed = options.get(
             "seed", None
         )  # used to set all environments to specified seeds
+        env_reset_options = {
+            "reconfigure": True,
+            "episode_id": torch.arange(self.num_envs)+self.debug_cnt*100,
+        }
         if self.init_state is not None:
             if not self.has_reset_before:
                 # the env must be fully reset at least once to ensure correct rendering
-                self.env.reset()
+                self.env.reset(seed=0, options=env_reset_options)
                 self.has_reset_before = True
 
             # always reset to the same state to be compatible with gym
@@ -237,22 +272,37 @@ class ManiskillImageWrapper(gym.Env):
             )  # raw_obs: (B, obs_dim)
         elif new_seed is not None:
             self.seed(seed=new_seed)
-            raw_obs, info = self.env.reset()  # raw_obs: (B, obs_dim)
+            raw_obs, info = self.env.reset(seed=new_seed, options=env_reset_options)  # raw_obs: (B, obs_dim)
         else:
             # random reset
-            raw_obs, info = self.env.reset()  # raw_obs: (B, obs_dim)
+            raw_obs, info = self.env.reset(seed=new_seed, options=env_reset_options)  # raw_obs: (B, obs_dim)
+
+        self.debug_cnt += 1
+
         return self.get_observation(raw_obs)
 
     def step(self, action):
         (B,action_dim) = action.shape
+        # print("raw_action:", action)
         if self.normalize:
+            # print("IN?")
             action = self.unnormalize_action(action)
 
+        # print("unprocess action?:", action[0])
         action = self.action_transform(action)
 
+        # print("action?:", action[0])
+
+        # action_dict = np.load("./debug/action.npy", allow_pickle=True).item()
+        # action = action_dict["total_action_list"][self.debug_cnt]
+        # self.debug_cnt += 1
+        # action = torch.tensor(action).to(torch.float32).to(self.env.device).repeat(self.num_envs, 1)
+        
         raw_obs, reward, terminated, truncated, info = self.env.step(
             action
         )  # raw_obs: (B, obs_dim)
+        # print("raw_obs:", raw_obs["sensor_data"]["3rd_view_camera"]["rgb"].shape, raw_obs["sensor_data"]["hand_camera"]["rgb"].shape)
+        # exit(0)
         obs = self.get_observation(raw_obs)  # obs: (B, obs_dim)
 
         # render if specified
@@ -337,6 +387,7 @@ if __name__ == "__main__":
     )
     wrapper.seed(0)
     obs = wrapper.reset()
+
     action = wrapper.action_space.sample()
     obs, reward, terminated, truncated, info = wrapper.step(action)
     print(obs.keys())

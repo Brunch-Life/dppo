@@ -48,15 +48,15 @@ class TrainAgent:
             from mani_skill.envs.tasks.tabletop import TabletopPickPlaceEnv
             wrappers = cfg.env.wrappers
             env_kwargs = dict(
-                num_envs=cfg.env.n_envs, #beacause we use make_async to create multiple envs
+                num_envs=cfg.env.n_envs,
                 obs_mode="rgb+segmentation",
-                control_mode="pd_ee_delta_pose",
+                control_mode="pd_ee_pose",
                 sim_backend="gpu",
                 sim_config={
                     "sim_freq": 1000,
                     "control_freq": 25,
                 },
-                max_episode_steps=300,
+                max_episode_steps=cfg.env.max_episode_steps,
                 sensor_configs={"shader_pack": "default"},
                 is_table_green = False,
                 render_mode="rgb_array",
