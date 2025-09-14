@@ -12,6 +12,7 @@ import logging
 import torch
 from torch import nn
 import torch.nn.functional as F
+from collections import OrderedDict
 
 log = logging.getLogger(__name__)
 
@@ -74,16 +75,32 @@ class DiffusionModel(nn.Module):
 
         # Set up models
         self.network = network.to(device)
+        print("state_dict before loading", self.network.state_dict()['noise_pred_net.down_modules.2.0.blocks.1.block.1.weight'])
         if network_path is not None:
             checkpoint = torch.load(
-                network_path, map_location=device, weights_only=True
+                network_path, map_location=self.device, weights_only=True
             )
+            for key, value in self.network.state_dict().items():
+                if "noise_pred_net" in key:
+                    print(key)
             if "ema" in checkpoint:
-                self.load_state_dict(checkpoint["ema"], strict=False)
-                logging.info("Loaded SL-trained policy from %s", network_path)
+                statedict_to_load = OrderedDict()
+                for key, value in checkpoint["ema"].items():
+                    if "backbones" in key:
+                        statedict_to_load["backbone.nets." + key] = value
+                    elif "pools" in key:
+                        statedict_to_load["backbone.nets." + key] = value
+                    elif "linears" in key:
+                        statedict_to_load["backbone.nets." + key] = value
+                    elif "noise_pred_net" in key:
+                        statedict_to_load[key.split(".", 1)[1]] = value
+                    else:
+                        raise ValueError(f"Unexpected Key {key} in checkpoint")
+                self.network.load_state_dict(statedict_to_load, strict=True)
+                logging.info("Successfully loaded Pre-trained policy from %s", network_path)
             else:
-                self.load_state_dict(checkpoint["model"], strict=False)
-                logging.info("Loaded RL-trained policy from %s", network_path)
+                raise ValueError("Invalid checkpoint. No ema found")
+        print("state_dict after loading", self.network.state_dict()['noise_pred_net.down_modules.2.0.blocks.1.block.1.weight'])
         logging.info(
             f"Number of network parameters: {sum(p.numel() for p in self.parameters())}"
         )

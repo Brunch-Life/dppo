@@ -46,11 +46,11 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
         while self.itr < self.n_train_itr:
 
             # Prepare video paths for each envs --- only applies for the first set of episodes if allowing reset within iteration and each iteration has multiple episodes from one env
-            options_venv = [{} for _ in range(self.n_envs)]
+            options_venv = {}
             if self.itr % self.render_freq == 0 and self.render_video:
-                for env_ind in range(self.n_render):
-                    options_venv[env_ind]["video_path"] = os.path.join(
-                        self.render_dir, f"itr-{self.itr}_trial-{env_ind}.mp4"
+                # for env_ind in range(self.n_render):
+                options_venv["video_path"] = os.path.join(
+                        self.render_dir, f"itr-{self.itr}_trial-0.mp4"
                     )
 
             # Define train or eval - all envs restart
@@ -116,7 +116,7 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                 # Apply multi-step action
                 # MultiStep wrapper expects (n_action_steps, n_env, action_dim)
                 # We have (n_env, n_action_steps, action_dim), so transpose to get correct shape
-                action_venv = action_venv.transpose(1, 0, 2)  # (n_action_steps, n_env, action_dim)
+                # action_venv = action_venv.transpose(1, 0, 2)  # (n_action_steps, n_env, action_dim)
                 obs_venv, reward_venv, terminated_venv, truncated_venv, info_venv = (
                     self.venv.step(action_venv)
                 )
@@ -125,8 +125,9 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                 for k in obs_trajs:
                     # Transpose from (n_cond_step, n_envs, ...) to (n_envs, n_cond_step, ...)
                     # For 5D tensor: (1, 32, 6, 224, 224) -> (32, 1, 6, 224, 224)
-                    axes = [1, 0] + list(range(2, prev_obs_venv[k].ndim))
-                    obs_trajs[k][step] = prev_obs_venv[k].permute(axes).cpu().numpy()
+                    # axes = [1, 0] + list(range(2, prev_obs_venv[k].ndim))
+                    # obs_trajs[k][step] = prev_obs_venv[k].permute(axes).cpu().numpy()
+                    obs_trajs[k][step] = prev_obs_venv[k].cpu().numpy()
                 chains_trajs[step] = chains_venv
                 reward_trajs[step] = reward_venv.cpu().numpy()
                 terminated_trajs[step] = terminated_venv.cpu().numpy()

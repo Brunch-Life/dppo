@@ -16,6 +16,11 @@ from gymnasium import spaces
 import imageio
 import torch
 
+from mani_skill.utils.structs.pose import Pose
+from mani_skill.evaluation.policies.diffusion_policy.dp_modules.utils.math import get_pose_from_rot_pos_batch
+from mani_skill.utils.geometry.rotation_conversions import matrix_to_euler_angles
+
+
 
 class ManiskillImageWrapper(gym.Env):
     def __init__(
@@ -41,12 +46,13 @@ class ManiskillImageWrapper(gym.Env):
         self.render_hw = render_hw
         self.render_camera_name = render_camera_name
         self.video_writer = None
+        self.record_video = False
         self.clamp_obs = clamp_obs
         self.cfg = cfg
         # set up normalization
         self.normalize = normalization_path is not None
         if self.normalize:
-            self.NORMALIZE_PARAMS = np.load(normalization_path)
+            self.NORMALIZE_PARAMS = np.load(normalization_path, allow_pickle=True)
 
             self.pose_gripper_mean = np.concatenate(
                 [
@@ -114,6 +120,17 @@ class ManiskillImageWrapper(gym.Env):
         ]
         self.transformations = nn.Sequential(*self.transformations)
 
+        self.record_third = []
+        self.record_wrist = []
+
+
+    def concat_images(images_third, images_wrist):
+        images = []
+        for i in range(len(images_third)):
+            images.append(np.concatenate([images_third[i], images_wrist[i]], axis=1))
+        return images
+
+
     def normalize_obs(self, obs):
         obs = 2 * (
             (obs - self.obs_min) / (self.obs_max - self.obs_min + 1e-6) - 0.5
@@ -123,11 +140,36 @@ class ManiskillImageWrapper(gym.Env):
         return obs
 
     def unnormalize_action(self, action):
-        action = np.asarray(action)  # (B,action_dim) [-1,1]
-        action = (
-            action * self.pose_gripper_scale[None, :] + self.pose_gripper_mean[None, :]
-        )
-        return action  # [abs]
+        action = np.asarray(action)
+        action = action * self.pose_gripper_scale[None, :] + self.pose_gripper_mean[None, :]
+        return action
+
+    def action_transform(self, action):
+        assert len(action.shape) == 2 and action.shape[1] == 10
+        (B,action_dim) = action.shape
+
+        mat_6 = action[:,3:9].reshape(action.shape[0],3,2) # [B ,3, 2]
+        mat_6[:, :, 0] = mat_6[:, :, 0] / np.linalg.norm(mat_6[:, :, 0]) # [B, 3]
+        mat_6[:, :, 1] = mat_6[:, :, 1] / np.linalg.norm(mat_6[:, :, 1]) # [B, 3]
+        z_vec = np.cross(mat_6[:, :, 0], mat_6[:, :, 1]) # [B, 3]
+        z_vec = z_vec[:, :, np.newaxis]  # (B, 3, 1)
+        mat = np.concatenate([mat_6, z_vec], axis=2) # [B, 3, 3]
+        pos = action[:, :3] # [B, 3]
+        gripper_width = action[:, -1, np.newaxis] # [B, 1]
+
+        pose:Pose = self.env.agent.ee_pose_at_robot_base
+        self.pose_at_obs = pose.to_transformation_matrix().cpu().numpy()
+        init_to_desired_pose = self.pose_at_obs @ get_pose_from_rot_pos_batch(mat, pos) # for delta_action in base frame 
+
+        pose_action = np.concatenate(
+            [
+                init_to_desired_pose[:, :3, 3],
+                matrix_to_euler_angles(torch.from_numpy(init_to_desired_pose[:, :3, :3]),"XYZ").numpy(),
+                gripper_width
+            ],
+            axis=1) # [B, 7]
+
+        return pose_action
 
     def get_observation(self, raw_obs):
         obs = {"rgb": None, "state": None}  # stack rgb if multiple cameras
@@ -152,7 +194,7 @@ class ManiskillImageWrapper(gym.Env):
         #     obs["state"] = self.normalize_obs(obs["state"])
         # obs["rgb"] *= 255  # [0, 1] -> [0, 255], in float64
         if obs['state'] is None:
-            obs['state'] = torch.zeros(obs['rgb'].shape[0], 10)
+            obs['state'] = torch.zeros(obs['rgb'].shape[0], 10).to(obs['rgb'].device)
         obs["rgb"] = obs["rgb"].float()
 
         return obs
@@ -169,6 +211,11 @@ class ManiskillImageWrapper(gym.Env):
         if self.video_writer is not None:
             self.video_writer.close()
             self.video_writer = None
+
+
+        if self.record_video:
+            self.save_video(options["video_path"])
+
 
         # Start video if specified
         if "video_path" in options:
@@ -197,8 +244,12 @@ class ManiskillImageWrapper(gym.Env):
         return self.get_observation(raw_obs)
 
     def step(self, action):
+        (B,action_dim) = action.shape
         if self.normalize:
-            action = self.unnormalize_action(action)  # (B,action_dim)
+            action = self.unnormalize_action(action)
+
+        action = self.action_transform(action)
+
         raw_obs, reward, terminated, truncated, info = self.env.step(
             action
         )  # raw_obs: (B, obs_dim)
@@ -207,7 +258,13 @@ class ManiskillImageWrapper(gym.Env):
         # render if specified
         if self.video_writer is not None:
             video_img = self.render(mode="rgb_array")
-            self.video_writer.append_data(video_img)
+            self.video_writer.append_data(video_img[0].cpu().numpy())
+
+        # if self.save_video:
+        #     record_third = obs["rgb"][0, :3].permute(1, 2, 0).cpu().numpy()
+        #     record_wrist = obs["rgb"][0, 3:].permute(1, 2, 0).cpu().numpy()
+        #     self.record_third.append(record_third)
+        #     self.record_wrist.append(record_wrist)
 
         return obs, reward, terminated, truncated, info
 

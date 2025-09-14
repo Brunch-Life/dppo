@@ -75,13 +75,14 @@ def stack_last_n_obs(all_obs, n_steps):
     if all_obs[-1] is None: # for no obs_state
         return None
     assert len(all_obs) > 0
-    all_obs = list(all_obs)         # (N, B, C, H, W) or (N, B, H, W, C)
-    result = torch.zeros((n_steps,) + all_obs[-1].shape, dtype=all_obs[-1].dtype)
-    start_idx = -min(n_steps, len(all_obs))
-    result[start_idx:] = torch.stack(all_obs[start_idx:])  # (N, B, C, H, W) or (N, B, H, W, C)
-    if n_steps > len(all_obs):
-        # pad
-        result[:start_idx] = result[start_idx]
+    assert len(all_obs) >= n_steps
+
+    start_idx = - n_steps
+    stack_obs = torch.stack(all_obs[start_idx:]).transpose(0, 1)  # (B, n_steps, C, H, W)
+    assert stack_obs.shape[0] == all_obs[-1].shape[0]
+    assert stack_obs.shape[1] == n_steps
+    assert stack_obs.shape[2:] == all_obs[-1].shape[1:]
+    result = stack_obs
     return result
 
 
@@ -95,7 +96,7 @@ class MultiStep(gym.Wrapper):
         max_episode_steps=None,
         reward_agg_method="sum",  # never use other types
         prev_action=True,
-        reset_within_step=False,
+        reset_within_step=True,
         pass_full_observations=False,
         verbose=False,
         **kwargs,
@@ -121,7 +122,9 @@ class MultiStep(gym.Wrapper):
         **kwargs,
     ):
         """Resets the environment."""
-        obs = self.env.reset(options=options)
+        obs = self.env.reset(options=options) # obs: (B, obs_dim)
+        # for key in obs.keys():
+        #     obs[key] = obs[key].unsqueeze(1) # (B, 1, obs_dim)
         self.obs = deque([obs], maxlen=max(self.n_obs_steps + 1, self.n_action_steps))
         if self.prev_action:
             self.action = deque(
@@ -130,47 +133,50 @@ class MultiStep(gym.Wrapper):
         self.reward = list()
         self.done = list()
         self.info = defaultdict(lambda: deque(maxlen=self.n_obs_steps + 1))
-        obs = self._get_obs(self.n_obs_steps)
+        obs = self._get_obs(self.n_obs_steps) # obs: (B, n_obs_steps, obs_dim)
 
-        self.cnt = np.zeros(obs['rgb'].shape[0], dtype=int)
         return obs
 
     def step(self, action):
         """
-        actions: (n_action_steps,) + action_shape
+        actions: (B, n_action_steps,) + action_shape
         """
         if action.ndim == 1:  # in case action_steps = 1
             action = action[None]
-        for act_step, act in enumerate(action):
+        for act_step, act in enumerate(action.transpose(1, 0, 2)):
             # done does not differentiate terminal and truncation
             observation, reward, terminated, truncated, info = self.env.step(act) # act: (B, action_dim)
 
-            self.obs.append(observation) # self.obs: (n_steps, B, obs_dim)
-            self.action.append(act) # self.action: (n_steps, B, action_dim)
-            self.reward.append(reward) # self.reward: (n_steps, B,)
+            self.obs.append(observation) # self.obs: list: n_steps of (B, obs_dim)
+            self.action.append(act) # self.action: list: n_steps of (B, action_dim)
+            self.reward.append(reward) # self.reward: list: n_steps of (B,)
             
             done = torch.logical_or(truncated, terminated) # done: (B,)
-            self.done.append(done) # self.done: (n_steps, B,)
+            self.done.append(done) # self.done: list: n_steps of (B,)
             self._add_info(info)
-        observation = self._get_obs(self.n_obs_steps) # observation: (n_obs_steps, B, obs_dim)
+        observation = self._get_obs(self.n_obs_steps) # observation: (B, n_obs_steps, obs_dim)
         reward = aggregate(self.reward, self.reward_agg_method) # reward: (B,)
         done = aggregate(self.done, "max") # done: (B,)
         info = dict_take_last_n(self.info, self.n_obs_steps)
         if self.pass_full_observations:
-            info["full_obs"] = self._get_obs(act_step + 1) # full_obs: (n_obs_steps, B, obs_dim)
+            info["full_obs"] = self._get_obs(act_step + 1) # full_obs: (B, n_obs_steps, obs_dim)
 
         # In mujoco case, done can happen within the loop above
-        if self.reset_within_step and torch.any(self.done[-1]):
-            env_ind = torch.where(self.done[-1])[0] # env_ind: (B,)
+        if self.reset_within_step and torch.any(done).item():
+            env_ind = torch.where(done)[0] # env_ind: eg. [0, 1, 2]
             # need to save old observation in the case of truncation only, for bootstrapping
             if torch.any(truncated):
-                info["final_obs"][torch.where(truncated)] = observation[torch.where(truncated)] # final_obs: (B, n_obs_steps, obs_dim)
+                if isinstance(observation, dict):
+                    for key in observation.keys():
+                        info["final_obs"] = observation[key][torch.where(truncated)] # final_obs: (B, n_obs_steps, obs_dim)
+                else:
+                    info["final_obs"] = observation[torch.where(truncated)] # final_obs: (B, n_obs_steps, obs_dim)
 
             # reset
             options = {}
-            options["env_idx"] = env_ind # env_ind: (B,)
+            options["env_idx"] = env_ind # env_ind: eg. [0, 1, 2]
 
-            observation = ( # observation: (n_obs_steps, B, obs_dim)
+            observation = ( # observation: (B, n_obs_steps, obs_dim)
                 self.reset(options=options)
             ) 
             self.verbose and print(f"Reset env{env_ind} within wrapper.") # print(f"Reset env{env_ind} within wrapper.")
@@ -178,12 +184,9 @@ class MultiStep(gym.Wrapper):
         # reset reward and done for next step
         self.reward = list()
         self.done = list()
-        return observation, reward, terminated, truncated, info # observation: (n_obs_steps, B, obs_dim), reward: (B,), terminated: (B,), truncated: (B,), info: dict
+        return observation, reward, terminated, truncated, info # observation: (B, n_obs_steps, obs_dim), reward: (B,), terminated: (B,), truncated: (B,), info: dict
 
     def _get_obs(self, n_steps=1):
-        """
-        Output (n_steps,B,) + obs_shape
-        """
         assert len(self.obs) > 0
         if isinstance(self.observation_space, spaces.Box):
             return stack_last_n_obs(self.obs, n_steps)
@@ -191,7 +194,7 @@ class MultiStep(gym.Wrapper):
             result = dict()
             for key in self.observation_space.keys():
                 result[key] = stack_last_n_obs([obs[key] for obs in self.obs], n_steps)
-            return result # result: (n_steps, B, obs_dim)
+            return result # result: (B, n_steps, obs_dim)
         else:
             raise RuntimeError("Unsupported space type")
 
@@ -199,11 +202,11 @@ class MultiStep(gym.Wrapper):
         if n_steps is None:
             n_steps = self.n_obs_steps - 1  # exclude current step
         assert len(self.action) > 0
-        return stack_last_n_obs(self.action, n_steps) # (n_steps, B, action_dim)
+        return stack_last_n_obs(self.action, n_steps) # (B, n_steps, action_dim)
 
     def _add_info(self, info):
         for key, value in info.items():
-            self.info[key].append(value) # self.info: (n_steps, B, info_dim)
+            self.info[key].append(value) # self.info: (B, n_steps, info_dim)
 
     def render(self, **kwargs):
         """Not the best design"""

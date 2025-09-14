@@ -15,6 +15,7 @@ H, W: image height and width
 import copy
 import torch
 import logging
+from collections import OrderedDict
 
 log = logging.getLogger(__name__)
 import torch.nn.functional as F
@@ -89,13 +90,6 @@ class VPGDiffusion(DiffusionModel):
 
         # Value function
         self.critic = critic.to(self.device)
-        if network_path is not None:
-            checkpoint = torch.load(
-                network_path, map_location=self.device, weights_only=True
-            )
-            if "ema" not in checkpoint:  # load trained RL model
-                self.load_state_dict(checkpoint["model"], strict=False)
-                logging.info("Loaded critic from %s", network_path)
 
     # ---------- Sampling ----------#
 
@@ -145,7 +139,8 @@ class VPGDiffusion(DiffusionModel):
         use_base_policy=False,
         deterministic=False,
     ):
-        noise = self.actor(x, t, cond=cond)
+        # noise = self.actor(x, t, cond=cond)
+        noise = torch.zeros_like(x)
         if self.use_ddim:
             ft_indices = torch.where(
                 index >= (self.ddim_steps - self.ft_denoising_steps)
@@ -159,14 +154,17 @@ class VPGDiffusion(DiffusionModel):
         # overwrite noise for fine-tuning steps
         if len(ft_indices) > 0:
             # For cond with shape (n_obs_steps, batch_size, ...), we need to index the second dimension
-            cond_ft = {}
-            for key in cond:
-                if cond[key].ndim >= 2:
-                    # Index batch dimension (second dim) for multi-dimensional tensors
-                    cond_ft[key] = cond[key][:, ft_indices]
-                else:
-                    # For 1D tensors, index directly
-                    cond_ft[key] = cond[key][ft_indices]
+            if len(ft_indices) == len(x):
+                cond_ft = cond
+            else:
+                raise ValueError(f"Length of ft_indices {len(ft_indices)} must be equal to length of batch {len(B)} in DDIM finetuning")
+            # for key in cond:
+            #     if cond[key].ndim >= 2:
+            #         # Index batch dimension (second dim) for multi-dimensional tensors
+            #         cond_ft[key] = cond[key][:, ft_indices]
+            #     else:
+            #         # For 1D tensors, index directly
+            #         cond_ft[key] = cond[key][ft_indices]
             noise_ft = actor(x[ft_indices], t[ft_indices], cond=cond_ft)
             noise[ft_indices] = noise_ft
 
@@ -258,7 +256,7 @@ class VPGDiffusion(DiffusionModel):
         device = self.betas.device
         sample_data = cond["state"] if "state" in cond else cond["rgb"]
         # Input shape is (n_obs_steps, batch_size, ...), so batch_size is the second dimension
-        B = sample_data.shape[1] if sample_data.ndim > 1 else len(sample_data)
+        B = len(sample_data)
 
         # Get updated minimum sampling denoising std
         min_sampling_denoising_std = self.get_min_sampling_denoising_std()

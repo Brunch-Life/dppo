@@ -343,10 +343,10 @@ class VisionDiffusionMLP(nn.Module):
         # Transpose cond from (n_steps, batch_size, ...) to (batch_size, n_steps, ...)
         cond_transposed = {}
         for key, value in cond.items():
-            if value.ndim >= 2:
-                cond_transposed[key] = value.transpose(0, 1)  # (n_steps, B, ...) -> (B, n_steps, ...)
-            else:
-                cond_transposed[key] = value
+            # if value.ndim >= 2:
+            #     cond_transposed[key] = value.transpose(0, 1)  # (n_steps, B, ...) -> (B, n_steps, ...)
+            # else:
+            cond_transposed[key] = value
         
         _, T_rgb, C, H, W = cond_transposed["rgb"].shape
 

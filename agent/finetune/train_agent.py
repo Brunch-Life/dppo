@@ -79,6 +79,7 @@ class TrainAgent:
             env_wrapper = ManiskillImageWrapper(
                 env=env,
                 shape_meta=cfg.shape_meta,
+                normalization_path=cfg.env.wrappers.maniskill_image.normalization_path,
                 image_keys=cfg.env.wrappers.maniskill_image.image_keys,
                 cfg=cfg,
             )
@@ -198,10 +199,11 @@ class TrainAgent:
 
     def reset_env_all(self, verbose=False, options_venv=None, **kwargs):
         if options_venv is None:
-            options_venv = [
-                {k: v for k, v in kwargs.items()} for _ in range(self.n_envs)
-            ]
-        obs_venv = self.venv.reset()
+            raise ValueError("options_venv is required")
+            # options_venv = [
+            #     {k: v for k, v in kwargs.items()} for _ in range(self.n_envs)
+            # ]
+        obs_venv = self.venv.reset(options=options_venv)
 
         # convert to OrderedDict if obs_venv is a list of dict
         if isinstance(obs_venv, list):

@@ -4,6 +4,7 @@ Launcher for all experiments. Download pre-training data, normalization statisti
 """
 
 import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 import sys
 import pretty_errors
 import logging
@@ -24,7 +25,7 @@ OmegaConf.register_new_resolver("round_up", math.ceil)
 OmegaConf.register_new_resolver("round_down", math.floor)
 
 # suppress d4rl import error
-os.environ["D4RL_SUPPRESS_IMPORT_ERROR"] = "1"
+# os.environ["D4RL_SUPPRESS_IMPORT_ERROR"] = "1"
 
 # add logger
 log = logging.getLogger(__name__)
