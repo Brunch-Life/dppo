@@ -151,3 +151,5 @@ debug/action.npy
 debug/data2.npy
 debug/data.npy
 debug/data3.npy
+
+env/roboscape/genie/magvit2.ckpt
