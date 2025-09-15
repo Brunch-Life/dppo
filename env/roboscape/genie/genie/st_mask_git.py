@@ -9,9 +9,9 @@ from huggingface_hub import PyTorchModelHubMixin
 from tqdm import tqdm
 from transformers.utils import ModelOutput
 
-from roboscape.genie.genie.factorization_utils import FactorizedEmbedding, factorize_labels
-from roboscape.genie.genie.config import GenieConfig
-from roboscape.genie.genie.st_transformer import STTransformerDecoder
+from env.roboscape.genie.genie.factorization_utils import FactorizedEmbedding, factorize_labels
+from env.roboscape.genie.genie.config import GenieConfig
+from env.roboscape.genie.genie.st_transformer import STTransformerDecoder
 from timm.models.vision_transformer import Mlp
 
 

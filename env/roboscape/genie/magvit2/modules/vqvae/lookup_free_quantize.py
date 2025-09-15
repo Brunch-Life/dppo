@@ -24,7 +24,7 @@ from torch.nn import Module
 
 from einops import rearrange, reduce, pack, unpack
 
-from roboscape.genie.magvit2.config import VQConfig
+from env.roboscape.genie.magvit2.config import VQConfig
 
 # constants
 

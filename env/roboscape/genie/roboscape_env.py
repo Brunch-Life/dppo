@@ -2,11 +2,11 @@ import gym
 from gym import spaces
 from idna import decode
 import numpy as np
-from roboscape.genie.genie.st_mask_git import GenieConfig, STMaskGIT
+from env.roboscape.genie.genie.st_mask_git import GenieConfig, STMaskGIT
 from collections import deque
 import torch
-from roboscape.genie.magvit2.models.lfqgan import VQModel
-from roboscape.genie.magvit2.config import VQConfig
+from env.roboscape.genie.magvit2.models.lfqgan import VQModel
+from env.roboscape.genie.magvit2.config import VQConfig
 import os
 import random
 import cv2
@@ -15,10 +15,10 @@ import gc
 import torchvision.transforms.v2.functional as transforms_f
 from einops import rearrange
 import json
-from roboscape.genie.data import RawTokenDataset
+from env.roboscape.genie.data import RawTokenDataset
 import lpips
-from roboscape.genie.eval_utils import compute_lpips, decode_tokens
-from roboscape.genie.visualize import decode_latents_wrapper
+from env.roboscape.genie.eval_utils import compute_lpips, decode_tokens
+from env.roboscape.genie.visualize import decode_latents_wrapper
 from PIL import Image
 import torch.nn.functional as F
 import imageio
@@ -43,7 +43,7 @@ class RoboScapeEnv(gym.Env):
         stride=4,
         force_action=False,
         vis_path=None,
-        video_tokenizer_ckpt="/iag_ad_01/ad/tangyinzhou/tyz/observation-genie/genie/magvit2.ckpt",
+        video_tokenizer_ckpt="/ML-vePFS/tangyinzhou/RoboScape-R/dppo/env/roboscape/genie/magvit2.ckpt",
         force_env_id=None,
     ):
         super(RoboScapeEnv, self).__init__()

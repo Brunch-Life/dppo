@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass
 
-from roboscape.genie.genie.factorization_utils import nth_root
+from env.roboscape.genie.genie.factorization_utils import nth_root
 
 
 @dataclass

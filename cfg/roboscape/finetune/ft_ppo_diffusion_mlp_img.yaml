@@ -35,14 +35,14 @@ env:
   save_video: False
   use_image_obs: True
   task: pickplace
-  wmconfig: /iag_ad_01/ad/tangyinzhou/tyz/observation-genie/genie/genie/configs/magvit_n32_h8_d512_action_done.json
-  goaler_config: /iag_ad_01/ad/tangyinzhou/tyz/observation-genie/genie/genie/configs/magvit_n32_h8_d512_text_done.json
-  wmckpt: /tangyinzhou-tos-volc-engine/tyz/encoded_maniskill/action_finetune_target_bins_0911_multiview_n0.01/step_60000
-  goaler_ckpt: /tangyinzhou-tos-volc-engine/tyz/encoded_maniskill/action_finetune_target_bins_0911_multiview_n0.01/step_60000
+  wmconfig: /ML-vePFS/tangyinzhou/RoboScape-R/dppo/env/roboscape/genie/genie/configs/magvit_n32_h8_d512_action_done.json
+  goaler_config: /ML-vePFS/tangyinzhou/RoboScape-R/dppo/env/roboscape/genie/genie/configs/magvit_n32_h8_d512_text_done.json
+  wmckpt: /manifold-obs/tangyinzhou/encoded_maniskill/action_finetune_target_bins_0911_multiview_n0.01/step_120000
+  goaler_ckpt: /manifold-obs/tangyinzhou/encoded_maniskill/action_finetune_target_bins_0911_multiview_n0.01/step_120000
   total_steps: 2
   scene_id: 20250714_100315
-  data_dir: /tangyinzhou-tos-volc-engine/tyz/encoded_maniskill_delta_multi_view_small/merged
-  vis_path: /tangyinzhou-tos-volc-engine/tyz/WM4RL_log
+  data_dir: /manifold-obs/tangyinzhou/encoded_maniskill_delta_multi_view_small/merged
+  vis_path: /manifold-obs/tangyinzhou/WM4RL_log
   force_action: false
   num_prompt_frames: 15
   wrappers:

@@ -19,10 +19,10 @@ import torchvision.transforms.v2.functional as transforms_f
 from einops import rearrange
 from matplotlib import pyplot as plt
 
-from roboscape.genie.data import RawTokenDataset
-from roboscape.genie.magvit2.config import VQConfig
-from roboscape.genie.magvit2.models.lfqgan import VQModel
-from roboscape.genie.genie.st_mask_git import STMaskGIT, GenieConfig
+from env.roboscape.genie.data import RawTokenDataset
+from env.roboscape.genie.magvit2.config import VQConfig
+from env.roboscape.genie.magvit2.models.lfqgan import VQModel
+from env.roboscape.genie.genie.st_mask_git import STMaskGIT, GenieConfig
 
 
 def parse_args():
@@ -109,7 +109,7 @@ def rescale_magvit_output(magvit_output):
 
 def decode_latents_wrapper(
     batch_size=16,
-    tokenizer_ckpt="/iag_ad_01/ad/tangyinzhou/tyz/observation-genie-finetune/genie/magvit2.ckpt",
+    tokenizer_ckpt="/ML-vePFS/tangyinzhou/RoboScape-R/dppo/env/roboscape/genie/magvit2.ckpt",
     max_images=None,
 ):
     device = "cuda"

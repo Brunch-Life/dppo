@@ -1,7 +1,7 @@
 from torch import nn, Tensor
 from einops import rearrange
 import torch
-from roboscape.genie.genie.attention import SelfAttention
+from env.roboscape.genie.genie.attention import SelfAttention
 
 
 class Mlp(nn.Module):

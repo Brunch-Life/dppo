@@ -2,7 +2,7 @@ import functools
 import torch.nn as nn
 
 
-from roboscape.genie.magvit2.modules.util import ActNorm
+from env.roboscape.genie.magvit2.modules.util import ActNorm
 
 
 def weights_init(m):

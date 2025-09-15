@@ -4,7 +4,7 @@ import torch
 import torchvision.transforms.functional as transforms_f
 from einops import rearrange
 
-from roboscape.genie.genie.factorization_utils import factorize_labels
+from env.roboscape.genie.genie.factorization_utils import factorize_labels
 
 
 class AvgMetric:

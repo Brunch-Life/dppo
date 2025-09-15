@@ -153,3 +153,4 @@ debug/data.npy
 debug/data3.npy
 
 env/roboscape/genie/magvit2.ckpt
+env/roboscape/vgg16-397923af.pth

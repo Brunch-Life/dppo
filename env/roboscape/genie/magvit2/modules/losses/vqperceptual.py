@@ -6,9 +6,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from roboscape.genie.magvit2.config import VQConfig
-from roboscape.genie.magvit2.modules.losses.lpips import LPIPS
-from roboscape.genie.magvit2.modules.discriminator.model import NLayerDiscriminator, weights_init
+from env.roboscape.genie.magvit2.config import VQConfig
+from env.roboscape.genie.magvit2.modules.losses.lpips import LPIPS
+from env.roboscape.genie.magvit2.modules.discriminator.model import NLayerDiscriminator, weights_init
 
 
 class DummyLoss(nn.Module):

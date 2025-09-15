@@ -10,12 +10,12 @@ import lightning as L
 from collections import OrderedDict
 from contextlib import contextmanager
 
-from roboscape.genie.magvit2.config import VQConfig
-from roboscape.genie.magvit2.modules.diffusionmodules.improved_model import Encoder, Decoder
-from roboscape.genie.magvit2.modules.losses.vqperceptual import VQLPIPSWithDiscriminator
-from roboscape.genie.magvit2.modules.vqvae.lookup_free_quantize import LFQ
-from roboscape.genie.magvit2.modules.scheduler.lr_scheduler import Scheduler_LinearWarmup, Scheduler_LinearWarmup_CosineDecay
-from roboscape.genie.magvit2.modules.ema import LitEma
+from env.roboscape.genie.magvit2.config import VQConfig
+from env.roboscape.genie.magvit2.modules.diffusionmodules.improved_model import Encoder, Decoder
+from env.roboscape.genie.magvit2.modules.losses.vqperceptual import VQLPIPSWithDiscriminator
+from env.roboscape.genie.magvit2.modules.vqvae.lookup_free_quantize import LFQ
+from env.roboscape.genie.magvit2.modules.scheduler.lr_scheduler import Scheduler_LinearWarmup, Scheduler_LinearWarmup_CosineDecay
+from env.roboscape.genie.magvit2.modules.ema import LitEma
 
 
 class VQModel(L.LightningModule):

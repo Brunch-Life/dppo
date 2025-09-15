@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from roboscape.genie.magvit2.config import VQConfig
+from env.roboscape.genie.magvit2.config import VQConfig
 
 
 def swish(x):

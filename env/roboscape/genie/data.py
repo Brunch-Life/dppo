@@ -9,12 +9,12 @@ import torch
 from einops import rearrange
 from torch.utils.data import Dataset as TorchDataset
 from scipy.spatial.transform import Rotation as R
-from roboscape.genie.genie.factorization_utils import (
+from env.roboscape.genie.genie.factorization_utils import (
     factorize_token_ids,
     unfactorize_token_ids,
 )
-from roboscape.genie.genie.config import GenieConfig
-from roboscape.genie.genie.st_mask_git import cosine_schedule
+from env.roboscape.genie.genie.config import GenieConfig
+from env.roboscape.genie.genie.st_mask_git import cosine_schedule
 
 
 class RawTokenDataset(TorchDataset):

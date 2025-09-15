@@ -6,7 +6,7 @@ import torchvision
 from torchvision import models
 from collections import namedtuple
 
-from roboscape.genie.magvit2.util import get_ckpt_path
+from env.roboscape.genie.magvit2.util import get_ckpt_path
 
 
 class LPIPS(nn.Module):
@@ -26,7 +26,7 @@ class LPIPS(nn.Module):
             param.requires_grad = False
 
     def load_from_pretrained(self, name="vgg_lpips"):
-        ckpt = "/iag_ad_01/ad/tangyinzhou/tyz/observation-genie-finetune/vgg16-397923af.pth"
+        ckpt = "/ML-vePFS/tangyinzhou/RoboScape-R/dppo/env/roboscape/vgg16-397923af.pth"
         self.load_state_dict(torch.load(ckpt, map_location=torch.device("cpu")), strict=False)
         print("loaded pretrained LPIPS loss from {}".format(ckpt))
 
@@ -84,7 +84,7 @@ class vgg16(torch.nn.Module):
         vgg_model = models.vgg16(weights=None)
 
         # 加载本地权重文件路径，假设你的权重文件名为'your_local_weights.pth'
-        local_weights_path = '/iag_ad_01/ad/tangyinzhou/tyz/observation-genie-finetune/vgg16-397923af.pth'
+        local_weights_path = '/ML-vePFS/tangyinzhou/RoboScape-R/dppo/env/roboscape/vgg16-397923af.pth'
         local_weights = torch.load(local_weights_path)
 
         # 过滤掉classifier部分的键，并去除features.前缀
