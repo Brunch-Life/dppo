@@ -11,6 +11,7 @@ import torch
 import logging
 import wandb
 import math
+import imageio
 
 log = logging.getLogger(__name__)
 from util.timer import Timer
@@ -34,6 +35,8 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
 
         # Gradient accumulation to deal with large GPU RAM usage
         self.grad_accumulate = cfg.train.grad_accumulate
+
+        self.debug_step = 0
 
     def run(self):
 
@@ -158,10 +161,31 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     #     image = (image * 255).astype(np.uint8)
                     #     import cv2
                     #     cv2.imwrite(f"{save_dir}/img_{step}_{i}.png", image)
+                    
+                    prev_obs_venv["rgb"] = prev_obs_venv["rgb"].reshape(-1, 1, 6, 224, 224)
 
-                    prev_obs_venv["rgb"] = prev_obs_venv["rgb"].reshape(
-                        -1, 1, 6, 224, 224
-                    )
+
+                    # debug_obs_dir = "/ML-vePFS/tangyinzhou/yinuo/dp_train_zhiting/debug/obs"
+
+
+                    # self.debug_step = min(self.debug_step, 14)
+
+                    # print("debug_step:", self.debug_step)
+                    
+                    # file_name = f"test_image_{self.debug_step}.pt"
+
+                    # image_debug = torch.load(os.path.join(debug_obs_dir, file_name)).to(prev_obs_venv["rgb"].device)
+
+                    # image_save = image_debug.cpu().numpy()
+                    # image_save = image_save.transpose(0, 2, 3, 1)
+                    # image_save = image_save*255
+                    # image_save = image_save.astype(np.uint8)
+                    # for i in range(len(image_save)):
+                    #     imageio.imwrite(f"debug/obs/test_image_{self.debug_step}_{i}.png", image_save[i])
+
+                    # # image_debug = image_debug.reshape(-1, 1, 6, 224, 224)
+                    # image_debug = einops.rearrange(image_debug, "n c h w -> 1 1 (n c) h w")
+                    # prev_obs_venv["rgb"] = image_debug
                     prev_obs_venv["state"] = (
                         torch.zeros(
                             (
@@ -170,13 +194,18 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                                 10,
                             )
                         )
-                        .float()
-                        .to(prev_obs_venv["rgb"].device)
-                    )  # B,n_steps,10
+                    ).float().to(prev_obs_venv["rgb"].device)
+
+
+                    self.debug_step += 1
+                     
                     cond = {
-                        key: prev_obs_venv[key].float().to(self.device)
+                        key: prev_obs_venv[key]
+                        .float()
+                        .to(self.device)
                         for key in self.obs_dims
-                    }  # batch each type of obs and put into dict
+                    }
+                    # batch each type of obs and put into dict
                     # cond["rgb"] = cond["rgb"].float() / 255.0
 
                     # data_dict = np.load("./debug/data3.npy", allow_pickle=True).item()
@@ -184,6 +213,8 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     # print("check obs:", data_dict["obs_image"].shape, cond["rgb"].shape)
                     # exit(0)
 
+                    # print("=============== %d ===============" % self.debug_step)
+                    
                     samples = self.model(
                         cond=cond,
                         deterministic=eval_mode,
@@ -192,6 +223,10 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     output_venv = (
                         samples.trajectories.cpu().numpy()
                     )  # n_env x horizon x act
+                    
+                    # print("output_venv:", output_venv[0], output_venv.shape)
+
+                    # exit(0)
 
                     # action_check = np.load("./debug/data3.npy", allow_pickle=True).item()
                     # print("????????:", action_check["raw_actions"])
@@ -214,6 +249,7 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                 # MultiStep wrapper expects (n_action_steps, n_env, action_dim)
                 # We have (n_env, n_action_steps, action_dim), so transpose to get correct shape
                 # action_venv = action_venv.transpose(1, 0, 2)  # (n_action_steps, n_env, action_dim)
+                # print("action_venv:", torch.from_numpy(action_venv[0, :3,:]))
                 obs_venv, reward_venv, terminated_venv, truncated_venv, info_venv = (
                     self.venv.step(action_venv)
                 )

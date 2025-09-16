@@ -117,13 +117,16 @@ class ManiskillImageWrapper(gym.Env):
         ratio = 0.95
         original_size = (480, 640)
         self.transformations = [
-            transforms.RandomCrop(size=[int(original_size[0] * ratio), int(original_size[1] * ratio)]),
+            # transforms.RandomCrop(size=[int(original_size[0] * ratio), int(original_size[1] * ratio)]),
             transforms.Resize((224, 224), antialias=True),
         ]
         self.transformations = nn.Sequential(*self.transformations)
 
         self.record_third = []
         self.record_wrist = []
+
+        self.pos_at_obs = np.zeros((self.num_envs, 4, 4))
+        self.pos_at_obs_new = np.zeros((self.num_envs, 4, 4))
 
 
     def concat_images(images_third, images_wrist):
@@ -159,9 +162,8 @@ class ManiskillImageWrapper(gym.Env):
         pos = action[:, :3] # [B, 3]
         gripper_width = action[:, -1, np.newaxis] # [B, 1]
 
-        pose:Pose = self.env.agent.ee_pose_at_robot_base
-        self.pose_at_obs = pose.to_transformation_matrix().cpu().numpy()
-        init_to_desired_pose = self.pose_at_obs @ get_pose_from_rot_pos_batch(mat, pos) # for delta_action in base frame 
+
+        init_to_desired_pose = self.pos_at_obs @ get_pose_from_rot_pos_batch(mat, pos) # for delta_action in base frame 
 
         pose_action = np.concatenate(
             [
@@ -279,6 +281,9 @@ class ManiskillImageWrapper(gym.Env):
 
         self.debug_cnt += 1
 
+        pose:Pose = self.env.agent.ee_pose_at_robot_base
+        self.pos_at_obs_new = pose.to_transformation_matrix().cpu().numpy()
+
         return self.get_observation(raw_obs)
 
     def step(self, action):
@@ -287,9 +292,11 @@ class ManiskillImageWrapper(gym.Env):
         if self.normalize:
             # print("IN?")
             action = self.unnormalize_action(action)
+            # print("unnormalize action:", action)
 
         # print("unprocess action?:", action[0])
         action = self.action_transform(action)
+        # print("action_transform:", action)
 
         # print("action?:", action[0])
 
@@ -315,6 +322,9 @@ class ManiskillImageWrapper(gym.Env):
         #     record_wrist = obs["rgb"][0, 3:].permute(1, 2, 0).cpu().numpy()
         #     self.record_third.append(record_third)
         #     self.record_wrist.append(record_wrist)
+
+        pose:Pose = self.env.agent.ee_pose_at_robot_base
+        self.pos_at_obs_new = pose.to_transformation_matrix().cpu().numpy()
 
         return obs, reward, terminated, truncated, info
 

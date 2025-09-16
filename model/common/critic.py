@@ -246,7 +246,7 @@ class ResNetCritic(CriticObs):
         """
         B, T_rgb, C, H, W = cond["rgb"].shape
 
-        state = torch.zeros(B, 10)
+        state = torch.zeros(B, 10, device=cond["rgb"].device)
 
 
         # Take recent images --- sometimes we want to use fewer img_cond_steps than cond_steps (e.g., 1 image but 3 prio)

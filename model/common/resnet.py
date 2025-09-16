@@ -473,6 +473,9 @@ class ResNetEncoder(nn.Module):
 
 
     def forward(self, rgb1, rgb2):
+        # print("image input:", rgb1)
+        # print("image input:", rgb2)
+        # exit(0)
         feats1 = self.nets['policy']['backbones'][0](rgb1)
         feats2 = self.nets['policy']['backbones'][1](rgb2)
         feats1 = self.nets['policy']['pools'][0](feats1)
