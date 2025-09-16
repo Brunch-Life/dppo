@@ -15,6 +15,12 @@ import gymnasium as gym
 from gymnasium import spaces
 import imageio
 import torch
+import torch.nn.functional as F
+from scipy.spatial.transform import Rotation as R
+from mani_skill.evaluation.policies.diffusion_policy.dp_modules.utils.math import (
+    get_pose_from_rot_pos_batch,
+)
+from mani_skill.utils.geometry.rotation_conversions import matrix_to_euler_angles
 
 # import os
 # import sys
@@ -34,7 +40,7 @@ class RoboScapeImageWrapper(gym.Env):
         ],
         clamp_obs=False,
         init_state=None,
-        render_hw=(256, 256),
+        render_hw=(224, 224),
         render_camera_name="3rd_view_camera",
         cfg=None,
     ):
@@ -122,13 +128,20 @@ class RoboScapeImageWrapper(gym.Env):
         )
         return action
 
-    def get_observation(self, raw_obs):
+    def get_observation(self, raw_obs, output_dim=224):
         obs = {"rgb": None, "state": None}  # stack rgb if multiple cameras
         for key in self.obs_keys:
             if key in self.image_keys:
                 image = raw_obs["sensor_data"][key]["rgb"]  # [B, H, W, C]
                 image = image.permute(0, 3, 1, 2)  # [B, C, H, W]
                 image = image.float()
+                if not image.shape[-1] == output_dim:
+                    image = F.interpolate(
+                        input=image,
+                        size=(output_dim, output_dim),  # 目标 (H, W)
+                        mode="bilinear",  # 可选：'bilinear'（双线性）、'bicubic'（双三次，效果更好但稍慢）
+                        align_corners=False,
+                    )
                 if obs["rgb"] is None:
                     obs["rgb"] = image
                 else:
@@ -186,29 +199,89 @@ class RoboScapeImageWrapper(gym.Env):
             raw_obs, info = self.env.reset()  # raw_obs: (B, obs_dim)
         return self.get_observation(raw_obs)
 
+    def action_transform(self, action):
+        assert len(action.shape) == 2 and action.shape[1] == 10
+        (B, action_dim) = action.shape
+
+        mat_6 = action[:, 3:9].reshape(action.shape[0], 3, 2)  # [B ,3, 2]
+        mat_6[:, :, 0] = mat_6[:, :, 0] / np.linalg.norm(mat_6[:, :, 0])  # [B, 3]
+        mat_6[:, :, 1] = mat_6[:, :, 1] / np.linalg.norm(mat_6[:, :, 1])  # [B, 3]
+        z_vec = np.cross(mat_6[:, :, 0], mat_6[:, :, 1])  # [B, 3]
+        z_vec = z_vec[:, :, np.newaxis]  # (B, 3, 1)
+        mat = np.concatenate([mat_6, z_vec], axis=2)  # [B, 3, 3]
+        pos = action[:, :3]  # [B, 3]
+        gripper_width = action[:, -1, np.newaxis]  # [B, 1]
+
+        # [b, 7] to [b, 4, 4] + [b, 10] --> [b, 7]
+        def seven_dof_pose_with_euler_to_matrix(seven_dof_pose, euler_order="xyz"):
+            """
+            将包含旋转角(欧拉角)和gripper状态的7维姿态批量转换为4x4变换矩阵
+
+            参数:
+                seven_dof_pose: 形状为(B, 7)的数组，格式为[x, y, z, roll, pitch, yaw, gripper]
+                                其中前3个是位置，中间3个是欧拉角，最后1个是gripper状态
+                euler_order: 欧拉角旋转顺序，如'xyz', 'zyx'等，根据实际情况调整
+
+            返回:
+                形状为(B, 4, 4)的批量4x4变换矩阵
+            """
+            # 获取批次大小
+            batch_size = seven_dof_pose.shape[0]
+
+            # 提取位置分量 (B, 3)
+            positions = seven_dof_pose[:, :3]
+
+            # 提取欧拉角分量 (B, 3)
+            eulers = seven_dof_pose[:, 3:6]
+
+            # 创建批量4x4单位矩阵 (B, 4, 4)
+            transform_matrices = np.eye(4, dtype=np.float32)[np.newaxis, ...].repeat(
+                batch_size, axis=0
+            )
+
+            # 设置平移分量 (B, 3) -> (B, 3, 1) 并赋值
+            transform_matrices[:, :3, 3] = positions
+
+            # 将欧拉角批量转换为旋转矩阵 (B, 3, 3)
+            rotations = R.from_euler(euler_order, eulers, degrees=False)
+            rotation_matrices = rotations.as_matrix()  # 形状为 (B, 3, 3)
+
+            # 设置旋转分量
+            transform_matrices[:, :3, :3] = rotation_matrices
+
+            return transform_matrices
+
+        ##### Modified below #####
+        # pose: Pose = self.env.agent.ee_pose_at_robot_base
+        # self.pose_at_obs = pose.to_transformation_matrix().cpu().numpy()  # [b, 4, 4]
+        ##### Modified above #####
+        pose = self.env.action_buffer[-1].cpu().numpy()  # (B, 7)
+        matrix = seven_dof_pose_with_euler_to_matrix(pose, euler_order="xyz")
+        init_to_desired_pose = matrix @ get_pose_from_rot_pos_batch(
+            mat, pos
+        )  # for delta_action in base frame
+
+        pose_action = np.concatenate(
+            [
+                init_to_desired_pose[:, :3, 3],
+                matrix_to_euler_angles(
+                    torch.from_numpy(init_to_desired_pose[:, :3, :3]), "XYZ"
+                ).numpy(),
+                gripper_width,
+            ],
+            axis=1,
+        )  # [B, 7]
+
+        return pose_action
+
     def step(self, action, timestep=None):
         if self.normalize:
             action = self.unnormalize_action(action)  # (B,action_dim)
+        action = self.action_transform(action)
         raw_obs, reward, terminated, truncated, info = self.env.step(
             action, timestep
         )  # raw_obs: (B, obs_dim)
         obs = self.get_observation(raw_obs)  # obs: (B, obs_dim)
-        ###Test for now###
-        env_num = obs["rgb"].shape[0]
-        for env_id in range(env_num):
-            image = obs["rgb"][env_id].permute(1, 2, 0)  # H W C
-            save_dir = f"{self.cfg.env.vis_path}/env_{env_id}"
-            import os
-            import imageio
-
-            cam_3rd = image[:, :, :3]
-            cam_wrist = image[:, :, 3:]
-            image = (torch.concat([cam_3rd, cam_wrist], dim=0) * 255).to(torch.uint8)
-            os.makedirs(save_dir, exist_ok=True)
-            imageio.imwrite(
-                f"{save_dir}/test.png",
-                image.cpu().numpy(),
-            )
         # render if specified
         if self.video_writer is not None:
             video_img = self.render(mode="rgb_array")

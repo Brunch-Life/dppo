@@ -7,20 +7,22 @@ _target_: agent.finetune.train_ppo_diffusion_img_agent.TrainPPOImgDiffusionAgent
 
 name: ${env_name}_ft_diffusion_mlp_img_ta${horizon_steps}_td${denoising_steps}_tdf${ft_denoising_steps}
 logdir: ${oc.env:DPPO_LOG_DIR}/maniskill-finetune/${name}/${now:%Y-%m-%d}_${now:%H-%M-%S}_${seed}
-base_policy_path: ${oc.env:DPPO_LOG_DIR}/maniskill-pretrain/can/can_pre_diffusion_mlp_img_ta4_td100/2024-07-30_22-23-55/checkpoint/state_5000.pt
-normalization_path: ${oc.env:DPPO_DATA_DIR}/maniskill/${env_name}-img/normalization.npz
+base_policy_path: /ML-vePFS/tangyinzhou/yinuo/dp_train_zhiting/ckpts/20250914_094502/policy_step_140000_seed_0.ckpt
+normalization_path: /ML-vePFS/tangyinzhou/yinuo/dp_train_zhiting/ckpts/20250914_094502/norm_stats_1_epsnum_500.pkl
 
+num_img: 2
 seed: 42
 device: cuda:0
 env_name: RoboScape
-obs_dim: 9
-action_dim: 7
-denoising_steps: 100
-ft_denoising_steps: 5
+obs_dim: 10
+img_feature_dim: 128
+action_dim: 10
+denoising_steps: 50
+ft_denoising_steps: 10
 cond_steps: 1
 img_cond_steps: 1
-horizon_steps: 4
-act_steps: 4
+horizon_steps: 20
+act_steps: 10
 use_ddim: True
 
 object_name: nonstop
@@ -41,10 +43,11 @@ env:
   goaler_ckpt: /manifold-obs/tangyinzhou/encoded_maniskill/action_finetune_target_bins_0911_multiview_n0.01/step_120000
   total_steps: 2
   scene_id: 20250714_100315
-  data_dir: /manifold-obs/tangyinzhou/encoded_maniskill_delta_multi_view_small/merged
+  data_dir: /manifold-obs/tangyinzhou/merged
   vis_path: /manifold-obs/tangyinzhou/WM4RL_log
   force_action: false
   num_prompt_frames: 15
+  save_full_observations: True
   wrappers:
     roboscape_image:
       normalization_path: ${normalization_path}
@@ -60,24 +63,24 @@ env:
 shape_meta:
   obs:
     rgb:
-      shape: [3, 224, 224]
+      shape: [6, 224, 224]
     state:
-      shape: [0]
+      shape: [10]
   action: 
     shape: [7]
 
-wandb:
-  entity: ${oc.env:DPPO_WANDB_ENTITY}
-  project: robomimic-${env_name}-finetune
-  run: ${now:%H-%M-%S}_${name}
+wandb: null
+#   entity: ${oc.env:DPPO_WANDB_ENTITY}
+#   project: robomimic-${env_name}-finetune
+#   run: ${now:%H-%M-%S}_${name}
 
 train:
   n_train_itr: 151
   n_critic_warmup_itr: 2
-  n_steps: 300
+  n_steps: 3
   gamma: 0.999
-  augment: True
-  grad_accumulate: 15
+  augment: False
+  grad_accumulate: 10
   actor_lr: 5e-5
   actor_weight_decay: 0
   actor_lr_scheduler:
@@ -91,17 +94,17 @@ train:
     warmup_steps: 10
     min_lr: 1e-3
   save_model_freq: 100
-  val_freq: 10
+  val_freq: 1
   render:
     freq: 1
-    num: 0
+    num: 1
   # PPO specific
   reward_scale_running: True
   reward_scale_const: 1.0
   gae_lambda: 0.95
-  batch_size: 500
-  logprob_batch_size: 500
-  update_epochs: 10
+  batch_size: 16
+  logprob_batch_size: 16
+  update_epochs: 2
   vf_coef: 0.5
   target_kl: 1
 
@@ -129,51 +132,35 @@ model:
     _target_: model.diffusion.eta.EtaFixed
   network_path: ${base_policy_path}
   actor:
-    _target_: model.diffusion.mlp_diffusion.VisionDiffusionMLP
+    _target_: model.diffusion.mlp_diffusion_resnet.VisionDiffusionMLP
     backbone:
-      _target_: model.common.vit.VitEncoder
-      obs_shape: ${shape_meta.obs.rgb.shape}
-      num_channel: ${eval:'3 * ${img_cond_steps}'} # each image patch is history concatenated
-      img_h: ${shape_meta.obs.rgb.shape[1]}
-      img_w: ${shape_meta.obs.rgb.shape[2]}
-      cfg:
-        patch_size: 8
-        depth: 1
-        embed_dim: 128
-        num_heads: 4
-        embed_style: embed2
-        embed_norm: 0
+      _target_: model.common.resnet.ResNetEncoder
+      input_channel: ${eval:'3 * ${img_cond_steps}'} # each image patch is history concatenated
+      pretrained: False
+      input_coord_conv: False
     augment: False
-    spatial_emb: 128
+    num_img: ${num_img}
     time_dim: 32
     mlp_dims: [512, 512, 512]
     residual_style: True
     img_cond_steps: ${img_cond_steps}
-    cond_dim: ${eval:'${obs_dim} * ${cond_steps}'}
+    cond_dim: ${eval:'${img_feature_dim} + ${obs_dim} * ${cond_steps}'}  # 128 (visual features) + 10 (state features) = 138
     horizon_steps: ${horizon_steps}
     action_dim: ${action_dim}
   critic:
-    _target_: model.common.critic.ViTCritic
-    spatial_emb: 128
+    _target_: model.common.critic.ResNetCritic
     augment: False
+    num_img: ${num_img}
     backbone:
-      _target_: model.common.vit.VitEncoder
-      obs_shape: ${shape_meta.obs.rgb.shape}
-      num_channel: ${eval:'3 * ${img_cond_steps}'} # each image patch is history concatenated
-      img_h: ${shape_meta.obs.rgb.shape[1]}
-      img_w: ${shape_meta.obs.rgb.shape[2]}
-      cfg:
-        patch_size: 8
-        depth: 1
-        embed_dim: 128
-        num_heads: 4
-        embed_style: embed2
-        embed_norm: 0
+      _target_: model.common.resnet.ResNetEncoder
+      input_channel: ${eval:'3 * ${img_cond_steps}'} # each image patch is history concatenated
+      pretrained: False
+      input_coord_conv: False
     img_cond_steps: ${img_cond_steps}
     mlp_dims: [256, 256, 256]
     activation_type: Mish
     residual_style: True
-    cond_dim: ${eval:'${obs_dim} * ${cond_steps}'}
+    cond_dim: ${eval:'${img_feature_dim} + ${obs_dim} * ${cond_steps}'}  # 128 (visual features) + 10 (state features) = 138
   ft_denoising_steps: ${ft_denoising_steps}
   horizon_steps: ${horizon_steps}
   obs_dim: ${obs_dim}

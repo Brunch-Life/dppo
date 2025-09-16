@@ -116,7 +116,7 @@ class VQModel(L.LightningModule):
             missing_keys, unexpected_keys = self.load_state_dict(sd, strict=False)
 
         # print(f"{missing_keys=} {unexpected_keys=}")
-        print(f"Restored from {path}")
+        # print(f"Restored from {path}")
 
     def encode(self, x):
         h = self.encoder(x)

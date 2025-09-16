@@ -6,6 +6,9 @@ Modified from https://github.com/real-stanford/diffusion_policy/blob/main/diffus
 TODO: allow cond_steps != img_cond_steps (should be implemented in training scripts, not here)
 """
 
+import warnings
+
+warnings.filterwarnings("ignore")
 import gymnasium as gym
 from typing import Optional
 from gymnasium import spaces
@@ -148,7 +151,7 @@ class MultiStep(gym.Wrapper):
         """
         if action.ndim == 1:  # in case action_steps = 1
             action = action[None]
-        for act_step, act in enumerate(action.transpose(1, 0, 2)):
+        for act_step, act in enumerate(action):
             # done does not differentiate terminal and truncation
             observation, reward, terminated, truncated, info = self.env.step(
                 act, act_step
@@ -322,17 +325,17 @@ if __name__ == "__main__":
 
     wrapper = MultiStep(
         env=env_wrapper,
-        n_obs_steps=15,
-        n_action_steps=15,
+        n_obs_steps=cfg.env.num_prompt_frames,
+        n_action_steps=cfg.env.num_prompt_frames,
     )
     wrapper.seed(0)
     obs = wrapper.reset()
     print(obs.keys())
     ### Temp vis ###
-    init_timestep, env_num = obs["rgb"].shape[:2]  # T B C H W
+    env_num, init_timestep = obs["rgb"].shape[:2]  # B T C H W
     for env_id in range(env_num):
-        for t in range(init_timestep):
-            image = obs["rgb"][t][env_id].permute(1, 2, 0)  # H W C
+        for t in tqdm(range(init_timestep), desc=f"saveing for env {env_id}"):
+            image = obs["rgb"][env_id][t].permute(1, 2, 0)  # H W C
             cam_3rd = image[:, :, :3]
             cam_wrist = image[:, :, 3:]
             image = torch.concat([cam_3rd, cam_wrist], dim=0)
@@ -345,10 +348,10 @@ if __name__ == "__main__":
     action = wrapper.action_space.sample()
     obs, reward, terminated, truncated, info = wrapper.step(action)
     img = wrapper.render()
-    timestep, env_num = obs["rgb"].shape[:2]  # T B C H W
+    env_num, timestep = obs["rgb"].shape[:2]  # B T C H W
     for env_id in range(env_num):
-        for t in range(timestep):
-            image = obs["rgb"][t][env_id].permute(1, 2, 0)  # H W C
+        for t in tqdm(range(timestep), desc=f"saveing for env {env_id}"):
+            image = obs["rgb"][env_id][t].permute(1, 2, 0)  # H W C
             save_dir = f"{vis_path}/env_{env_id}"
             os.makedirs(save_dir, exist_ok=True)
             image = torch.concat([image[:, :, :3], image[:, :, 3:]], dim=0)

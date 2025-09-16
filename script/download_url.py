@@ -1,5 +1,5 @@
 def get_dataset_download_url(cfg):
-    env = cfg.env
+    print(env)
     # Gym
     if env == "hopper-medium-v2":
         return "https://drive.google.com/drive/u/1/folders/18Ti-92XVq3sE24K096WAxjC_SCCngeHd"

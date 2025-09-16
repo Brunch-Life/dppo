@@ -50,8 +50,8 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
             if self.itr % self.render_freq == 0 and self.render_video:
                 # for env_ind in range(self.n_render):
                 options_venv["video_path"] = os.path.join(
-                        self.render_dir, f"itr-{self.itr}_trial-0.mp4"
-                    )
+                    self.render_dir, f"itr-{self.itr}_trial-0.mp4"
+                )
 
             # Define train or eval - all envs restart
             eval_mode = self.itr % self.val_freq == 0 and not self.force_train
@@ -72,23 +72,23 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
             #     "rgb": torch.from_numpy(image_data).float().to(self.device),
             #     "state": torch.from_numpy(qpos_data).float().to(self.device),
             # }
-            
+
             # samples = self.model(
             #     cond=cond,
             #     deterministic=eval_mode,
             #     return_chain=True,
             # )
-            
+
             # print("predict_actions:", data_dict["pred_actions"])
             # print("model actions:", samples.trajectories.cpu().numpy())
-            
+
             # # data_dict_2 = np.load("./debug/data2.npy", allow_pickle=True).item()
             # # print("check:", data_dict_2["naction"].shape, data_dict_2["obs_cond"].shape, data_dict_2["k"], data_dict_2["noise_pred"].shape)
-            
+
             # # print("cond_true:", data_dict_2["obs_cond"])
-            
-            # # noise_pred = self.model.actor(torch.tensor(data_dict_2["naction"]).float().to(self.device), 
-            # #                               torch.tensor([0]).float().to(self.device), 
+
+            # # noise_pred = self.model.actor(torch.tensor(data_dict_2["naction"]).float().to(self.device),
+            # #                               torch.tensor([0]).float().to(self.device),
             # #                               cond=cond)
             # # print("noise_pred:", noise_pred.cpu().numpy())
             # # print("true noise:", data_dict_2["noise_pred"])
@@ -129,9 +129,9 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
 
                 # Select action
                 with torch.no_grad():
-                    
+
                     # device = prev_obs_venv["rgb"].device
-                    
+
                     # data_dict = np.load("./debug/data3.npy", allow_pickle=True).item()
                     # image_list = data_dict["image_data"]
                     # # print("shape:", image_list.shape)
@@ -148,7 +148,7 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     # # raw_obs['sensor_data']["3rd_view_camera"]['rgb'] = image_list[0]
                     # # raw_obs['sensor_data']["hand_camera"]['rgb'] = image_list[1]
                     # prev_obs_venv = self.venv.env.get_observation(raw_obs)
-                    
+
                     # save_dir = "./debug/img/"
                     # os.makedirs(save_dir, exist_ok=True)
                     # for i in range(prev_obs_venv["rgb"].shape[2]):
@@ -158,22 +158,32 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     #     image = (image * 255).astype(np.uint8)
                     #     import cv2
                     #     cv2.imwrite(f"{save_dir}/img_{step}_{i}.png", image)
-                    
-                    prev_obs_venv["rgb"] = prev_obs_venv["rgb"].reshape(-1, 1, 6, 224, 224)
-                     
-                    cond = {
-                        key: prev_obs_venv[key]
+
+                    prev_obs_venv["rgb"] = prev_obs_venv["rgb"].reshape(
+                        -1, 1, 6, 224, 224
+                    )
+                    prev_obs_venv["state"] = (
+                        torch.zeros(
+                            (
+                                prev_obs_venv["rgb"].shape[0],
+                                prev_obs_venv["rgb"].shape[1],
+                                10,
+                            )
+                        )
                         .float()
-                        .to(self.device)
+                        .to(prev_obs_venv["rgb"].device)
+                    )  # B,n_steps,10
+                    cond = {
+                        key: prev_obs_venv[key].float().to(self.device)
                         for key in self.obs_dims
                     }  # batch each type of obs and put into dict
                     # cond["rgb"] = cond["rgb"].float() / 255.0
-                    
+
                     # data_dict = np.load("./debug/data3.npy", allow_pickle=True).item()
-                    
+
                     # print("check obs:", data_dict["obs_image"].shape, cond["rgb"].shape)
                     # exit(0)
-                    
+
                     samples = self.model(
                         cond=cond,
                         deterministic=eval_mode,
@@ -182,18 +192,18 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     output_venv = (
                         samples.trajectories.cpu().numpy()
                     )  # n_env x horizon x act
-                    
+
                     # action_check = np.load("./debug/data3.npy", allow_pickle=True).item()
                     # print("????????:", action_check["raw_actions"])
                     # # print("output_venv:", output_venv)
                     # print("???:", self.venv.env.unnormalize_action(output_venv))
                     # print("delta:", self.venv.env.unnormalize_action(output_venv) - action_check["raw_actions"])
                     # exit(0)
-                    
+
                     # print("output_venv:", output_venv)
                     # print("???:", self.venv.env.action_transform(self.venv.env.unnormalize_action(output_venv[0, 0:4])))
                     # exit(0)
-                    
+
                     chains_venv = (
                         samples.chains.cpu().numpy()
                     )  # n_env x denoising x horizon x act
@@ -389,7 +399,9 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     torch.tensor(values_trajs, device=self.device).float().reshape(-1)
                 )
                 advantages_k = (
-                    torch.tensor(advantages_trajs, device=self.device).float().reshape(-1)
+                    torch.tensor(advantages_trajs, device=self.device)
+                    .float()
+                    .reshape(-1)
                 )
                 logprobs_k = torch.tensor(logprobs_trajs, device=self.device).float()
 

@@ -4,7 +4,8 @@ Launcher for all experiments. Download pre-training data, normalization statisti
 """
 
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 import sys
 import pretty_errors
 import logging
@@ -47,6 +48,7 @@ def main(cfg: OmegaConf):
 
     # For pre-training: download dataset if needed
     if "train_dataset_path" in cfg and not os.path.exists(cfg.train_dataset_path):
+        print("train_dataset_path in cfg")
         download_url = get_dataset_download_url(cfg)
         download_target = os.path.dirname(cfg.train_dataset_path)
         log.info(f"Downloading dataset from {download_url} to {download_target}")
@@ -54,6 +56,7 @@ def main(cfg: OmegaConf):
 
     # For for-tuning: download normalization if needed
     if "normalization_path" in cfg and not os.path.exists(cfg.normalization_path):
+        print("normalization_path in cfg")
         download_url = get_normalization_download_url(cfg)
         download_target = cfg.normalization_path
         dir_name = os.path.dirname(download_target)
@@ -66,6 +69,7 @@ def main(cfg: OmegaConf):
 
     # For for-tuning: download checkpoint if needed
     if "base_policy_path" in cfg and not os.path.exists(cfg.base_policy_path):
+        print("base_policy_path in cfg")
         download_url = get_checkpoint_download_url(cfg)
         if download_url is None:
             raise ValueError(
@@ -85,6 +89,7 @@ def main(cfg: OmegaConf):
     # run agent
     cls = hydra.utils.get_class(cfg._target_)
     agent = cls(cfg)
+    print("Going to run")
     agent.run()
 
 

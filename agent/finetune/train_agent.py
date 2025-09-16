@@ -46,6 +46,7 @@ class TrainAgent:
         if cfg.env.name == "TabletopPickPlaceEnv-v1":
             from mani_skill.envs.sapien_env import BaseEnv
             from mani_skill.envs.tasks.tabletop import TabletopPickPlaceEnv
+
             wrappers = cfg.env.wrappers
             env_kwargs = dict(
                 num_envs=cfg.env.n_envs,
@@ -58,13 +59,12 @@ class TrainAgent:
                 },
                 max_episode_steps=cfg.env.max_episode_steps,
                 sensor_configs={"shader_pack": "default"},
-                is_table_green = False,
+                is_table_green=False,
                 render_mode="rgb_array",
             )
 
             if cfg.env.robot_uids is not None:
                 env_kwargs["robot_uids"] = tuple(cfg.env.robot_uids.split(","))
-
 
             if cfg.env_name == "TabletopPickPlaceEnv-v1":
                 env_kwargs["object_name"] = cfg.env.object_name
@@ -89,9 +89,46 @@ class TrainAgent:
                 n_action_steps=cfg.env.wrappers.multi_step.n_action_steps,
                 max_episode_steps=cfg.env.max_episode_steps,
             )
+            self.venv = env_wrapper
+        elif cfg.env.name == "RoboScape":
+            from datetime import datetime
+            from env.roboscape.genie.roboscape_env import RoboScapeEnv
+            from env.gym_utils.wrapper.roboscape_image import RoboScapeImageWrapper
 
+            wrappers = cfg.env.wrappers
+            vis_path = (
+                cfg.env.vis_path + f"/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+            )
+            env_kwargs = dict(
+                task=cfg.env.task,
+                wmconfig=cfg.env.wmconfig,
+                goaler_config=cfg.env.goaler_config,
+                wmckpt=cfg.env.wmckpt,
+                goaler_ckpt=cfg.env.goaler_ckpt,
+                batch_size=cfg.env.n_envs,
+                total_steps=cfg.env.total_steps,
+                scene_id=cfg.env.scene_id,
+                data_dir=cfg.env.data_dir,
+                vis_path=vis_path,
+                force_action=cfg.env.force_action,
+                num_prompt_frames=cfg.env.num_prompt_frames,
+                force_env_id=[0],
+            )
 
-            
+            env = RoboScapeEnv(**env_kwargs)
+            shape_meta = cfg["shape_meta"]
+            env_wrapper = RoboScapeImageWrapper(
+                env=env,
+                shape_meta=shape_meta,
+                image_keys=["3rd_view_camera", "hand_camera"],
+                cfg=cfg,
+            )
+            env_wrapper = MultiStep(
+                env=env_wrapper,
+                n_obs_steps=cfg.env.wrappers.multi_step.n_obs_steps,
+                n_action_steps=cfg.env.wrappers.multi_step.n_action_steps,
+                max_episode_steps=cfg.env.max_episode_steps,
+            )
             self.venv = env_wrapper
         else:
             self.venv = make_async(
@@ -203,7 +240,7 @@ class TrainAgent:
             # options_venv = [
             #     {k: v for k, v in kwargs.items()} for _ in range(self.n_envs)
             # ]
-        obs_venv = self.venv.reset(options=options_venv)
+        obs_venv = self.venv.reset(options=options_venv)  # rgb is B T (2)C H W
 
         # convert to OrderedDict if obs_venv is a list of dict
         if isinstance(obs_venv, list):
