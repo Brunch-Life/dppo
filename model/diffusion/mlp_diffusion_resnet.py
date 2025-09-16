@@ -351,10 +351,10 @@ class VisionDiffusionMLP(nn.Module):
         _, T_rgb, C, H, W = cond_transposed["rgb"].shape
 
         # flatten history
-        # state = torch.zeros(B, 10).to(x.device)
-        state = torch.tensor([[-2.68780708e+00, 6.87680533e-03, -1.23791146e+00, -9.68018115e-01,
-                               -3.46124172e-02, -3.46130505e-02,  9.67813313e-01,  1.48297912e-02,
-                               1.70214221e-01,  0.00000000e+00]]).repeat(B, 1).to(x.device)
+        state = torch.zeros(B, 10).to(x.device)
+        # state = torch.tensor([[-2.68780708e+00, 6.87680533e-03, -1.23791146e+00, -9.68018115e-01,
+        #                        -3.46124172e-02, -3.46130505e-02,  9.67813313e-01,  1.48297912e-02,
+        #                        1.70214221e-01,  0.00000000e+00]]).repeat(B, 1).to(x.device)
 
         # Take recent images --- sometimes we want to use fewer img_cond_steps than cond_steps (e.g., 1 image but 3 prio)
         rgb = cond_transposed["rgb"][:, -self.img_cond_steps :]
@@ -391,11 +391,17 @@ class VisionDiffusionMLP(nn.Module):
         # print("pred:", cond_encoded)
         # exit(0)
 
+        # print("noise_input:", x[0])
+        # print("noise_input:", time[0])
+        # print("noise_input:", cond_encoded[0])
+        # exit(0)
+
         noise_pred = self.noise_pred_net(
             sample=x,
             timestep=time,
             global_cond=cond_encoded
         )
+
 
         return noise_pred
         

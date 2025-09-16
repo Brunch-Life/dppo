@@ -7,9 +7,11 @@ _target_: agent.finetune.train_ppo_diffusion_img_agent.TrainPPOImgDiffusionAgent
 
 name: ${env_name}_ft_diffusion_mlp_img_ta${horizon_steps}_td${denoising_steps}_tdf${ft_denoising_steps}
 logdir: ${oc.env:DPPO_LOG_DIR}/maniskill-finetune/${name}/${now:%Y-%m-%d}_${now:%H-%M-%S}_${seed}
-base_policy_path: /ML-vePFS/tangyinzhou/yinuo/dp_train_zhiting/ckpts/20250907_143337/policy_step_200000_seed_0.ckpt
-normalization_path: /ML-vePFS/tangyinzhou/yinuo/dp_train_zhiting/ckpts/20250907_143337/norm_stats_1_epsnum_500.pkl
+base_policy_path: /ML-vePFS/tangyinzhou/yinuo/dp_train_zhiting/ckpts/20250914_094502/policy_step_140000_seed_0.ckpt
+normalization_path: /ML-vePFS/tangyinzhou/yinuo/dp_train_zhiting/ckpts/20250914_094502/norm_stats_1_epsnum_500.pkl
 
+
+force_train: True
 num_img: 2
 seed: 42
 device: cuda:0
@@ -22,7 +24,7 @@ ft_denoising_steps: 10
 cond_steps: 1
 img_cond_steps: 1
 horizon_steps: 20
-act_steps: 10
+act_steps: 20
 use_ddim: True
 
 object_name: nonstop
@@ -31,14 +33,14 @@ robot_uids: panda_wristcam
 
 
 env:
-  n_envs: 1
+  n_envs: 4
   name: ${env_name}
   object_name: ${object_name}
   container_name: ${container_name}
   robot_uids: ${robot_uids}
   best_reward_threshold_for_success: 1
   max_episode_steps: 300
-  save_video: True
+  save_video: False
   use_image_obs: True
   wrappers:
     maniskill_image:
@@ -61,18 +63,18 @@ shape_meta:
   action: 
     shape: [7]
 
-wandb: null
-  # entity: ${oc.env:DPPO_WANDB_ENTITY}
-  # project: maniskill-${env_name}-finetune
-  # run: ${now:%H-%M-%S}_${name}
+wandb:
+  entity: ${oc.env:DPPO_WANDB_ENTITY}
+  project: maniskill-${env_name}-finetune
+  run: ${now:%H-%M-%S}_${name}
 
 train:
   n_train_itr: 151
   n_critic_warmup_itr: 2
-  n_steps: 30
+  n_steps: 45
   gamma: 0.999
   augment: False
-  grad_accumulate: 10
+  grad_accumulate: 3
   actor_lr: 5e-5
   actor_weight_decay: 0
   actor_lr_scheduler:
@@ -86,10 +88,10 @@ train:
     warmup_steps: 10
     min_lr: 1e-3
   save_model_freq: 100
-  val_freq: 1
+  val_freq: 10
   render:
     freq: 1
-    num: 1
+    num: 0
   # PPO specific
   reward_scale_running: True
   reward_scale_const: 1.0
@@ -103,6 +105,7 @@ train:
 model:
   _target_: model.diffusion.diffusion_ppo.PPODiffusion
   # HP to tune
+  denoised_clip_value: 1
   gamma_denoising: 0.99
   clip_ploss_coef: 0.01
   clip_ploss_coef_base: 0.001

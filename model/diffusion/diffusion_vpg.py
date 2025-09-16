@@ -167,6 +167,10 @@ class VPGDiffusion(DiffusionModel):
             #         cond_ft[key] = cond[key][ft_indices]
             noise_ft = actor(x[ft_indices], t[ft_indices], cond=cond_ft)
             noise[ft_indices] = noise_ft
+            # print("noise_input:", x[ft_indices])
+            # print("noise_input:", t[ft_indices])
+            # print("noise_input:", cond_ft[ft_indices])
+            # print("noise_ft:", noise_ft[0], noise_ft[0].mean(), noise_ft[0].std())
 
         # Predict x_0
         if self.predict_epsilon:
@@ -176,10 +180,14 @@ class VPGDiffusion(DiffusionModel):
                 """
                 alpha = extract(self.ddim_alphas, index, x.shape)
                 alpha_prev = extract(self.ddim_alphas_prev, index, x.shape)
+                # print("alpha:", alpha[0], "alpha_prev:", alpha_prev[0])
                 sqrt_one_minus_alpha = extract(
                     self.ddim_sqrt_one_minus_alphas, index, x.shape
                 )
+                # print("sqrt_one_minus_alpha:", sqrt_one_minus_alpha[0])
                 x_recon = (x - sqrt_one_minus_alpha * noise) / (alpha**0.5)
+                # print("x_recon:", x_recon[0], x_recon.shape, x_recon.mean(), x_recon.std())
+                # exit(0)
             else:
                 """
                 x₀ = √ 1\α̅ₜ xₜ - √ 1\α̅ₜ-1 ε
@@ -195,6 +203,8 @@ class VPGDiffusion(DiffusionModel):
             if self.use_ddim:
                 # re-calculate noise based on clamped x_recon - default to false in HF, but let's use it here
                 noise = (x - alpha ** (0.5) * x_recon) / sqrt_one_minus_alpha
+                # print("noise:", noise[0], noise.shape, noise.mean(), noise.std())
+                # exit(0)
 
         # Clip epsilon for numerical stability in policy gradient - not sure if this is helpful yet, but the value can be huge sometimes. This has no effect if DDPM is used
         if self.use_ddim and self.eps_clip_value is not None:
@@ -209,11 +219,18 @@ class VPGDiffusion(DiffusionModel):
                 etas = torch.zeros((x.shape[0], 1, 1)).to(x.device)
             else:
                 etas = self.eta(cond).unsqueeze(1)  # B x 1 x (Da or 1)
+            # sigma = (
+            #     etas
+            #     * ((1 - alpha_prev) / (1 - alpha) * (1 - alpha / alpha_prev)) ** 0.5
+            # ).clamp_(min=1e-10)
             sigma = (
                 etas
                 * ((1 - alpha_prev) / (1 - alpha) * (1 - alpha / alpha_prev)) ** 0.5
-            ).clamp_(min=1e-10)
-            dir_xt_coef = (1.0 - alpha_prev - sigma**2).clamp_(min=0).sqrt()
+            )
+            # dir_xt_coef = (1.0 - alpha_prev - sigma**2).clamp_(min=0).sqrt()
+            dir_xt_coef = (1.0 - alpha_prev - sigma**2).sqrt()
+            # print("dir_xt_coef:", dir_xt_coef*noise)
+            # exit(0)
             mu = (alpha_prev**0.5) * x_recon + dir_xt_coef * noise
             var = sigma**2
             logvar = torch.log(var)
@@ -227,6 +244,9 @@ class VPGDiffusion(DiffusionModel):
             )
             logvar = extract(self.ddpm_logvar_clipped, t, x.shape)
             etas = torch.ones_like(mu).to(mu.device)  # always one for DDPM
+        
+        # print("mu:", mu[0], mu.shape, mu.mean(), mu.std())
+        # exit(0)
         return mu, logvar, etas
 
     # override
@@ -263,6 +283,7 @@ class VPGDiffusion(DiffusionModel):
 
         # Loop
         x = torch.randn((B, self.horizon_steps, self.action_dim), device=device)
+        # x = torch.zeros((B, self.horizon_steps, self.action_dim), device=device)
         if self.use_ddim:
             t_all = self.ddim_t
         else:
@@ -283,6 +304,7 @@ class VPGDiffusion(DiffusionModel):
                 use_base_policy=use_base_policy,
                 deterministic=deterministic,
             )
+            # print(t, "mean:", mean[0], mean.shape, mean.mean(), mean.std())
             std = torch.exp(0.5 * logvar)
 
             # Determine noise level
@@ -302,8 +324,7 @@ class VPGDiffusion(DiffusionModel):
                 -self.randn_clip_value, self.randn_clip_value
             )
             x = mean + std * noise
-            # x = mean
-
+ 
             # clamp action at final step
             if self.final_action_clip_value is not None and i == len(t_all) - 1:
                 x = torch.clamp(
@@ -318,8 +339,11 @@ class VPGDiffusion(DiffusionModel):
                 ):
                     chain.append(x)
 
+        # exit(0)
+
         if return_chain:
             chain = torch.stack(chain, dim=1)
+        # print("x: ", x[0], x.shape, x.mean(), x.std())
         return Sample(x, chain)
 
     # ---------- RL training ----------#
