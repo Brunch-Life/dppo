@@ -38,6 +38,17 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
 
         self.debug_step = 0
 
+        # freeze backbone
+        for param in self.model.actor_ft.backbone.parameters():
+            param.requires_grad = False
+
+        self.model.critic.backbone.load_state_dict(self.model.actor_ft.backbone.state_dict())
+
+        for param in self.model.critic.backbone.parameters():
+            param.requires_grad = False
+
+        print("freeze backbone!")
+
     def run(self):
 
         # Start training loop
@@ -132,60 +143,7 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
 
                 # Select action
                 with torch.no_grad():
-                    
-                    # device = prev_obs_venv["rgb"].device
-                    
-                    # data_dict = np.load("./debug/data3.npy", allow_pickle=True).item()
-                    # image_list = data_dict["image_data"]
-                    # # print("shape:", image_list.shape)
-                    # raw_obs = {
-                    #     "sensor_data": {
-                    #         "3rd_view_camera": {
-                    #             "rgb": torch.tensor(image_list[0]).to(device),
-                    #         },
-                    #         "hand_camera": {
-                    #             "rgb": torch.tensor(image_list[1]).to(device),
-                    #         },
-                    #     }
-                    # }
-                    # # raw_obs['sensor_data']["3rd_view_camera"]['rgb'] = image_list[0]
-                    # # raw_obs['sensor_data']["hand_camera"]['rgb'] = image_list[1]
-                    # prev_obs_venv = self.venv.env.get_observation(raw_obs)
-                    
-                    # save_dir = "./debug/img/"
-                    # os.makedirs(save_dir, exist_ok=True)
-                    # for i in range(prev_obs_venv["rgb"].shape[2]):
-                    #     image = prev_obs_venv["rgb"][0, 0, i].cpu().numpy()
-                    #     print("image:", image.shape)
-                    #     image = image.transpose(1, 2, 0)
-                    #     image = (image * 255).astype(np.uint8)
-                    #     import cv2
-                    #     cv2.imwrite(f"{save_dir}/img_{step}_{i}.png", image)
-                    
-                    prev_obs_venv["rgb"] = prev_obs_venv["rgb"].reshape(-1, 1, 6, 224, 224)
-
-
-                    # debug_obs_dir = "/ML-vePFS/tangyinzhou/yinuo/dp_train_zhiting/debug/obs"
-
-
-                    # self.debug_step = min(self.debug_step, 14)
-
-                    # print("debug_step:", self.debug_step)
-                    
-                    # file_name = f"test_image_{self.debug_step}.pt"
-
-                    # image_debug = torch.load(os.path.join(debug_obs_dir, file_name)).to(prev_obs_venv["rgb"].device)
-
-                    # image_save = image_debug.cpu().numpy()
-                    # image_save = image_save.transpose(0, 2, 3, 1)
-                    # image_save = image_save*255
-                    # image_save = image_save.astype(np.uint8)
-                    # for i in range(len(image_save)):
-                    #     imageio.imwrite(f"debug/obs/test_image_{self.debug_step}_{i}.png", image_save[i])
-
-                    # # image_debug = image_debug.reshape(-1, 1, 6, 224, 224)
-                    # image_debug = einops.rearrange(image_debug, "n c h w -> 1 1 (n c) h w")
-                    # prev_obs_venv["rgb"] = image_debug
+                    # prev_obs_venv["rgb"] = prev_obs_venv["rgb"].reshape(-1, 1, 6, 224, 224)
                     prev_obs_venv["state"] = torch.zeros((self.n_envs, 1, 10), device=prev_obs_venv["rgb"].device)
 
                     self.debug_step += 1
@@ -196,15 +154,6 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                         .to(self.device)
                         for key in self.obs_dims
                     }  # batch each type of obs and put into dict
-                    # cond["rgb"] = cond["rgb"].float() / 255.0
-                    
-                    # data_dict = np.load("./debug/data3.npy", allow_pickle=True).item()
-                    
-                    # print("check obs:", data_dict["obs_image"].shape, cond["rgb"].shape)
-                    # exit(0)
-
-                    # print("=============== %d ===============" % self.debug_step)
-                    
                     samples = self.model(
                         cond=cond,
                         deterministic=eval_mode,
@@ -213,22 +162,6 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     output_venv = (
                         samples.trajectories.cpu().numpy()
                     )  # n_env x horizon x act
-                    
-                    # print("output_venv:", output_venv[0], output_venv.shape)
-
-                    # exit(0)
-
-                    # action_check = np.load("./debug/data3.npy", allow_pickle=True).item()
-                    # print("????????:", action_check["raw_actions"])
-                    # # print("output_venv:", output_venv)
-                    # print("???:", self.venv.env.unnormalize_action(output_venv))
-                    # print("delta:", self.venv.env.unnormalize_action(output_venv) - action_check["raw_actions"])
-                    # exit(0)
-                    
-                    # print("output_venv:", output_venv)
-                    # print("???:", self.venv.env.action_transform(self.venv.env.unnormalize_action(output_venv[0, 0:4])))
-                    # exit(0)
-                    
                     chains_venv = (
                         samples.chains.cpu().numpy()
                     )  # n_env x denoising x horizon x act
@@ -377,7 +310,7 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
 
                     # bootstrap value with GAE if not terminal - apply reward scaling with constant if specified
                     obs_venv_ts = {
-                        key: torch.from_numpy(obs_venv[key]).float().to(self.device)
+                        key: obs_venv[key] # torch.from_numpy(obs_venv[key]).float().to(self.device)
                         for key in self.obs_dims
                     }
                     advantages_trajs = np.zeros_like(reward_trajs)
@@ -487,7 +420,7 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                         # update policy and critic
                         loss.backward()
                         if (batch + 1) % self.grad_accumulate == 0:
-                            if self.itr >= self.n_critic_warmup_itr:
+                            if warmup_done_flag:
                                 if self.max_grad_norm is not None:
                                     torch.nn.utils.clip_grad_norm_(
                                         self.model.actor_ft.parameters(),
@@ -513,7 +446,7 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                             if (
                                 self.target_kl is not None
                                 and approx_kl > self.target_kl
-                                and self.itr >= self.n_critic_warmup_itr
+                                and warmup_done_flag
                             ):
                                 flag_break = True
                                 break
@@ -526,9 +459,12 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                 explained_var = (
                     np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
                 )
+                
+            warmup_done_flag = self.itr > self.n_critic_warmup_itr and explained_var > 0.5
+            
 
             # Update lr, min_sampling_std
-            if self.itr >= self.n_critic_warmup_itr:
+            if warmup_done_flag:
                 self.actor_lr_scheduler.step()
                 if self.learn_eta:
                     self.eta_lr_scheduler.step()
@@ -570,7 +506,7 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     run_results[-1]["eval_best_reward"] = avg_best_reward
                 else:
                     log.info(
-                        f"{self.itr}: step {cnt_train_step:8d} | loss {loss:8.4f} | pg loss {pg_loss:8.4f} | value loss {v_loss:8.4f} | bc loss {bc_loss:8.4f} | reward {avg_episode_reward:8.4f} | eta {eta:8.4f} | t:{time:8.4f}"
+                        f"itr {self.itr}: step {cnt_train_step:8d} | loss {loss:8.4f} | pg loss {pg_loss:8.4f} | value loss {v_loss:8.4f} | bc loss {bc_loss:8.4f} | reward {avg_episode_reward:8.4f} | eta {eta:8.4f} | t:{time:8.4f}"
                     )
                     if self.use_wandb:
                         wandb.log(

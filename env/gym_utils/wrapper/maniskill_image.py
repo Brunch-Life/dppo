@@ -223,7 +223,7 @@ class ManiskillImageWrapper(gym.Env):
         #     obs["state"] = self.normalize_obs(obs["state"])
             
         # obs["rgb"] *= 255  # [0, 1] -> [0, 255], in float64
-        obs["rgb"] = torch.tensor(image_data).float().to(raw_obs['sensor_data'][self.image_keys[0]]['rgb'].device) # obs["rgb"].float()
+        obs["rgb"] = torch.tensor(image_data).float().to(raw_obs['sensor_data'][self.image_keys[0]]['rgb'].device).reshape(-1, 6, 224, 224)
         if obs['state'] is None:
             obs['state'] = torch.zeros(obs['rgb'].shape[0], 10).to(obs['rgb'].device)
         

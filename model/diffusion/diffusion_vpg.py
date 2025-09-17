@@ -91,6 +91,7 @@ class VPGDiffusion(DiffusionModel):
         # Value function
         self.critic = critic.to(self.device)
 
+
     # ---------- Sampling ----------#
 
     def step(self):
