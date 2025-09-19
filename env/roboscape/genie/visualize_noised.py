@@ -109,12 +109,11 @@ def rescale_magvit_output(magvit_output):
 
 def decode_latents_wrapper(
     batch_size=16,
-    tokenizer_ckpt="/iag_ad_01/ad/tangyinzhou/tyz/observation-genie-finetune/genie/magvit2.ckpt",
+    tokenizer_ckpt="/ML-vePFS/tangyinzhou/RoboScape-R/dppo/env/roboscape/genie/magvit2.ckpt",
     max_images=None,
 ):
     device = "cuda"
     dtype = torch.bfloat16
-
     model_config = VQConfig()
     model = VQModel(model_config, ckpt_path=tokenizer_ckpt)
     model = model.to(device=device, dtype=dtype)

@@ -5,7 +5,6 @@ cmd = [
     "script/run.py",
     f"--config-name=ft_ppo_diffusion_mlp_img",
     f"--config-dir=/ML-vePFS/tangyinzhou/RoboScape-R/dppo/cfg/roboscape/finetune",
-    "ft_denoising_steps=10",
 ]
 
 try:

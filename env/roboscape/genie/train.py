@@ -253,7 +253,7 @@ def parse_args():
         help="If specified, will not compile the model.",
     )
     parser.add_argument("--load_ckpt", default=None)
-    parser.add_argument("--not_use_bin_action", action="store_false")
+    parser.add_argument("--use_bin_action", action="store_true")
     parser.add_argument("--noise_ratio", default=0, type=float)
     parser.add_argument("--noise_dim", default=-1, type=int)
     parser.add_argument("--noise_aug", action="store_true")
@@ -441,7 +441,7 @@ def main():
         split="train",
         noise_ratio=args.noise_ratio,
         noise_dim=args.noise_dim,
-        use_bin_action=not args.not_use_bin_action,
+        use_bin_action=args.use_bin_action,
         use_target_action=args.use_target_action,
     )
     if not args.overfit_first_batch:
@@ -454,7 +454,7 @@ def main():
             split="val",
             noise_ratio=args.noise_ratio,
             noise_dim=args.noise_dim,
-            use_bin_action=not args.not_use_bin_action,
+            use_bin_action=args.use_bin_action,
             use_target_action=args.use_target_action,
         )
     else:

@@ -37,7 +37,8 @@ class RawTokenDataset(TorchDataset):
         noise_dim=None,
         use_bin_action=True,
         use_target_action=True,
-        norm_7_dim=True,
+        norm_7_dim=False,
+        use_10dim_action=False,
     ):
         """
         Args:
@@ -51,6 +52,9 @@ class RawTokenDataset(TorchDataset):
                 e.g. frame 0 might appear as the first frame in example 0 and also the second frame in example 15.
                 If True, will filter out examples so that each frame appears at most once in the dataset.
         """
+        print(
+            f"use_target_action: {use_target_action}; use_bin_action:{use_bin_action}"
+        )
         root_dir = Path(data_dir)
         data_dir = root_dir / split
         if not os.path.exists(data_dir / "metadata.json"):
@@ -74,7 +78,11 @@ class RawTokenDataset(TorchDataset):
             for name in [
                 "video",
                 "segment_ids",
-                "target_pose" if use_target_action else "action",
+                (
+                    "target_pose"
+                    if use_target_action
+                    else ("delta_action_10dim" if use_10dim_action else "action")
+                ),
                 "text",
                 "done",
             ]
@@ -97,6 +105,7 @@ class RawTokenDataset(TorchDataset):
             self.actions = np.memmap(
                 action_tokens_path, dtype=np.float32, mode="r"
             ).reshape(self.metadata["num_images"], -1)
+            # norm if not 7 dim, default is False
             if self.actions.shape[1] == 8 and norm_7_dim:
                 quat = self.actions[:, 3:7]  # shape: (..., 4)
                 # 转成欧拉角 (roll, pitch, yaw)，默认是 'xyz' 顺序

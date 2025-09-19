@@ -148,13 +148,16 @@ class MultiStep(gym.Wrapper):
         """
         if action.ndim == 1:  # in case action_steps = 1
             action = action[None]
-        self.env.pos_at_obs = self.env.pos_at_obs_new
+        if not self.env.cfg.env.name == "RoboScape":
+            self.env.pos_at_obs = self.env.pos_at_obs_new
         for act_step, act in enumerate(action.transpose(1, 0, 2)):
             # done does not differentiate terminal and truncation
-            observation, reward, terminated, truncated, info = self.env.step(act) # act: (B, action_dim)
+            observation, reward, terminated, truncated, info = self.env.step(
+                act
+            )  # act: (B, action_dim)
             terminated = truncated.clone()
 
-            reward = torch.where(info["success"], 1, 0)
+            # reward = torch.where(info["success"], 1, 0)
 
             self.obs.append(observation)  # self.obs: list: n_steps of (B, obs_dim)
             self.action.append(act)  # self.action: list: n_steps of (B, action_dim)
@@ -163,6 +166,24 @@ class MultiStep(gym.Wrapper):
             done = torch.logical_or(truncated, terminated)  # done: (B,)
             self.done.append(done)  # self.done: list: n_steps of (B,)
             self._add_info(info)
+            # vis prev_obs
+            for env_id, image in enumerate(observation["rgb"]):
+                save_path = f"{self.cfg.logdir}/env_{env_id}"
+                import os
+
+                os.makedirs(save_path, exist_ok=True)
+                image_3rd = image[:3, :, :].permute(1, 2, 0)
+                image_wrist = image[3:, :, :].permute(1, 2, 0)
+                image = (
+                    (torch.concatenate([image_3rd, image_wrist], dim=0) * 255)
+                    .to(torch.uint8)
+                    .cpu()
+                    .numpy()
+                )
+                filename = f"{save_path}/{act_step}.png"
+                import imageio
+
+                imageio.imwrite(filename, image)
         observation = self._get_obs(
             self.n_obs_steps
         )  # observation: (B, n_obs_steps, obs_dim)
@@ -177,7 +198,7 @@ class MultiStep(gym.Wrapper):
         # In mujoco case, done can happen within the loop above
         if self.reset_within_step and torch.any(truncated).item():
             assert torch.all(truncated), "The envs should be truncated at the same time"
-            env_ind = torch.where(truncated)[0] # env_ind: eg. [0, 1, 2]
+            env_ind = torch.where(truncated)[0]  # env_ind: eg. [0, 1, 2]
             # need to save old observation in the case of truncation only, for bootstrapping
             if torch.any(truncated):
                 if isinstance(observation, dict):

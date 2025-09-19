@@ -69,8 +69,9 @@ class RoboScapeEnv(gym.Env):
             stride=stride,
             split="val",
             use_action=True,
-            use_text=True,
+            use_text=False,
             hybrid_sample=False,
+            use_target_action=True,
         )
         # 始化世界模型
         self.world_model = STMaskGIT.from_pretrained(wmckpt).to("cuda")
@@ -483,7 +484,7 @@ class RoboScapeEnv(gym.Env):
             truncated (torch.bool): Done for now                [B,]
             info (dict): Additional information.                None
         """
-        force_action = True
+        force_action = False
         if force_action and act_step is not None:
             action = (
                 self.gt_actions[:, act_step + self.num_prompt_frames, :].cpu().numpy()
@@ -550,7 +551,7 @@ class RoboScapeEnv(gym.Env):
         """
         基于当前时刻的observation和action生成下一时刻的observation和reward
         """
-        action = torch.from_numpy(action).to("cuda")
+        action = torch.from_numpy(action).to("cuda").to(torch.float32)
         prompt_THW = torch.stack(list(self.observation_buffer))
         prompt_THW = rearrange(prompt_THW, "T B H W -> B T H W")
         prompt_THW = torch.concatenate(
@@ -606,6 +607,9 @@ class RoboScapeEnv(gym.Env):
         done = done_pred[:, self.num_prompt_frames]
         reward = self.cal_reward(samples_HW.unsqueeze(1), done)
         self.action_buffer.append(action.to(self.action_buffer[0].dtype).to("cuda"))
+        gt_action = [x for x in self.gt_actions.permute(1, 0, 2)][15]
+        # 计算gt_action和action的距离
+        action_distance = torch.norm(gt_action - action, dim=1)
         return samples_HW, reward, done_pred
 
     def cal_reward(self, samples_HW, done):

@@ -2,12 +2,12 @@ import subprocess
 import os
 
 cmd = [
-    "/iag_ad_01/ad/tangyinzhou/anaconda3/envs/worldmodel_tyz/bin/python",
-    "train.py",
+    "/ML-vePFS/zhangxin/envs/mininconda/envs/dppo_roboscape/bin/python",
+    "env/roboscape/genie/train.py",
     "--genie_config",
-    "genie/configs/magvit_n32_h8_d512_action_done.json",
+    "/ML-vePFS/tangyinzhou/RoboScape-R/dppo/env/roboscape/genie/genie/configs/magvit_n32_h8_d512_action_done.json",
     "--output_dir",
-    "/tangyinzhou-tos-volc-engine/tyz/encoded_maniskill/action_finetune_resumed",
+    "/manifold-obs/tangyinzhou/encoded_maniskill/action_target_bins",
     "--max_eval_steps",
     "10",
     "--learning_rate",
@@ -23,10 +23,12 @@ cmd = [
     "--per_device_eval_batch_size",
     "1",
     "--train_data_dir",
-    "/tangyinzhou-tos-volc-engine/tyz/encoded_maniskill_delta_multi_view_small/merged",
+    "/manifold-obs/tangyinzhou/encoded_maniskill_delta_multi_view_full/merged",
     "--val_data_dir",
-    "/tangyinzhou-tos-volc-engine/tyz/encoded_maniskill_delta_multi_view_small/merged",
-    "--not_use_bin_action",
+    "/manifold-obs/tangyinzhou/encoded_maniskill_delta_multi_view_full/merged",
+    "--use_target_action",
+    "--use_multi_view",
+    "--use_bin_action",
 ]
 
 try:
@@ -41,7 +43,7 @@ try:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        cwd="/iag_ad_01/ad/tangyinzhou/tyz/observation-genie/genie",
+        cwd="/ML-vePFS/tangyinzhou/RoboScape-R/dppo",
         env=env,  # 使用自定义的环境变量
     )
     print("External script output:", result.stdout)

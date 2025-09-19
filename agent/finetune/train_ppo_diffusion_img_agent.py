@@ -39,7 +39,7 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
         self.debug_step = 0
 
     def run(self):
-
+        ptr = 0
         # Start training loop
         timer = Timer()
         run_results = []
@@ -100,7 +100,9 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
             # Reset env before iteration starts (1) if specified, (2) at eval mode, or (3) right after eval mode
             firsts_trajs = np.zeros((self.n_steps + 1, self.n_envs))
             if self.reset_at_iteration or eval_mode or last_itr_eval:
-                prev_obs_venv = self.reset_env_all(options_venv=options_venv)
+                prev_obs_venv = self.reset_env_all(
+                    options_venv=options_venv
+                )  # B T (2)C H W
                 firsts_trajs[0] = 1
             else:
                 # if done at the end of last iteration, the envs are just reset
@@ -161,17 +163,17 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     #     image = (image * 255).astype(np.uint8)
                     #     import cv2
                     #     cv2.imwrite(f"{save_dir}/img_{step}_{i}.png", image)
-                    
-                    prev_obs_venv["rgb"] = prev_obs_venv["rgb"].reshape(-1, 1, 6, 224, 224)
 
+                    prev_obs_venv["rgb"] = prev_obs_venv["rgb"].reshape(
+                        -1, 1, 6, 224, 224
+                    )
 
                     # debug_obs_dir = "/ML-vePFS/tangyinzhou/yinuo/dp_train_zhiting/debug/obs"
-
 
                     # self.debug_step = min(self.debug_step, 14)
 
                     # print("debug_step:", self.debug_step)
-                    
+
                     # file_name = f"test_image_{self.debug_step}.pt"
 
                     # image_debug = torch.load(os.path.join(debug_obs_dir, file_name)).to(prev_obs_venv["rgb"].device)
@@ -187,24 +189,96 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     # image_debug = einops.rearrange(image_debug, "n c h w -> 1 1 (n c) h w")
                     # prev_obs_venv["rgb"] = image_debug
                     prev_obs_venv["state"] = (
-                        torch.zeros(
-                            (
-                                prev_obs_venv["rgb"].shape[0],
-                                prev_obs_venv["rgb"].shape[1],
-                                10,
+                        (
+                            torch.zeros(
+                                (
+                                    prev_obs_venv["rgb"].shape[0],
+                                    prev_obs_venv["rgb"].shape[1],
+                                    10,
+                                )
                             )
                         )
-                    ).float().to(prev_obs_venv["rgb"].device)
-
+                        .float()
+                        .to(prev_obs_venv["rgb"].device)
+                    )
 
                     self.debug_step += 1
-                     
+
                     cond = {
-                        key: prev_obs_venv[key]
-                        .float()
-                        .to(self.device)
+                        key: prev_obs_venv[key].float().to(self.device)
                         for key in self.obs_dims
                     }
+                    ############# TEST FOR NOW !!!#############
+                    from torchvision import transforms
+
+                    resize_transform = transforms.Resize((224, 224))
+                    cam_3rd = []
+                    cam_wrist = []
+                    video_path = os.listdir(
+                        "/manifold-obs/bingwen/Datasets/wooden/plate/TabletopPickPlaceEnv-v1/20250907_210135/nonstop_plate_wooden/success"
+                    )[0]
+                    data = np.load(
+                        f"/manifold-obs/bingwen/Datasets/wooden/plate/TabletopPickPlaceEnv-v1/20250907_210135/nonstop_plate_wooden/success/{video_path}",
+                        allow_pickle=True,
+                    )["arr_0"].tolist()
+                    import cv2
+
+                    for jpeg_bytes in data["observation"]["rgb"]:
+                        img = cv2.imdecode(
+                            np.frombuffer(jpeg_bytes, np.uint8), cv2.IMREAD_COLOR
+                        )
+                        tensor = (
+                            torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
+                        )  # CHW 0-1
+                        tensor = resize_transform(
+                            tensor
+                        )  # ← 你定义的 transforms.Resize(256,256)
+                        imageio.imwrite(
+                            f"/ML-vePFS/tangyinzhou/RoboScape-R/dppo/debug.png",
+                            (tensor.cpu().numpy().transpose(1, 2, 0) * 255).astype(
+                                np.uint8
+                            ),
+                        )
+                        cam_3rd.append(tensor)
+                    for jpeg_bytes in data["observation"]["wrist_rgb"]:
+                        img = cv2.imdecode(
+                            np.frombuffer(jpeg_bytes, np.uint8), cv2.IMREAD_COLOR
+                        )
+                        tensor = (
+                            torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
+                        )  # CHW 0-1
+                        tensor = resize_transform(
+                            tensor
+                        )  # ← 你定义的 transforms.Resize(256,256)
+                        cam_wrist.append(tensor)
+                    imageio.imwrite(
+                        "/ML-vePFS/tangyinzhou/RoboScape-R/dppo/debug_0.png",
+                        (cam_3rd[0].cpu().numpy().transpose(1, 2, 0) * 255).astype(
+                            np.uint8
+                        ),
+                    )
+                    imageio.imwrite(
+                        "/ML-vePFS/tangyinzhou/RoboScape-R/dppo/debug_60.png",
+                        (cam_3rd[15 * 4].cpu().numpy().transpose(1, 2, 0) * 255).astype(
+                            np.uint8
+                        ),
+                    )
+                    cond["rgb"] = (
+                        torch.stack(
+                            [
+                                torch.concat(
+                                    [cam_3rd[15 * 4], cam_wrist[15 * 4]], dim=0
+                                ),
+                                torch.concat(
+                                    [cam_3rd[15 * 4], cam_wrist[15 * 4]], dim=0
+                                ),
+                            ]
+                        )
+                        .unsqueeze(1)
+                        .to(cond["rgb"].dtype)
+                        .to(cond["rgb"].device)
+                    )  # 2 1 6 224 224
+                    ############# TEST FOR NOW !!!#############
                     # batch each type of obs and put into dict
                     # cond["rgb"] = cond["rgb"].float() / 255.0
 
@@ -214,7 +288,7 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     # exit(0)
 
                     # print("=============== %d ===============" % self.debug_step)
-                    
+
                     samples = self.model(
                         cond=cond,
                         deterministic=eval_mode,
@@ -223,7 +297,7 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     output_venv = (
                         samples.trajectories.cpu().numpy()
                     )  # n_env x horizon x act
-                    
+
                     # print("output_venv:", output_venv[0], output_venv.shape)
 
                     # exit(0)
@@ -265,7 +339,6 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                 reward_trajs[step] = reward_venv.cpu().numpy()
                 terminated_trajs[step] = terminated_venv.cpu().numpy()
                 firsts_trajs[step + 1] = done_venv.cpu().numpy()
-
                 # update for next step
                 prev_obs_venv = obs_venv
 

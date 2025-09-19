@@ -119,6 +119,7 @@ class TrainAgent:
             shape_meta = cfg["shape_meta"]
             env_wrapper = RoboScapeImageWrapper(
                 env=env,
+                normalization_path=cfg.env.wrappers.roboscape_image.normalization_path,
                 shape_meta=shape_meta,
                 image_keys=["3rd_view_camera", "hand_camera"],
                 cfg=cfg,

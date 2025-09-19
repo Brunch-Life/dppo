@@ -7,13 +7,13 @@ import json
 import os
 import sys
 from pathlib import Path
-
+import warnings
 import torch
 import numpy as np
 
 sys.path.append(os.getcwd())
-from data import RawTokenDataset
-from genie.st_mask_git import STMaskGIT, GenieConfig
+from env.roboscape.genie.data import RawTokenDataset
+from env.roboscape.genie.genie.st_mask_git import STMaskGIT, GenieConfig
 
 
 def parse_args():
@@ -125,8 +125,8 @@ def main():
         norm_7_dim=False,
     )
     latent_side_len = val_dataset.metadata["s"]
-    # action_dim = 7
-    action_dim = 8
+    action_dim = 7
+    # action_dim = 8
     text_dim = 768
     # Get single example
     # print(len(val_dataset))
@@ -288,8 +288,8 @@ def main():
             | val_dataset.metadata
             | {
                 "num_images": outputs.shape[1],
-                # "h": 2 * latent_side_len,
-                "h": latent_side_len,
+                "h": 2 * latent_side_len,
+                # "h": latent_side_len,
                 "w": latent_side_len,
                 "t": args.window_size,
             },

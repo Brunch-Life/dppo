@@ -10,6 +10,7 @@ Modified from https://github.com/real-stanford/diffusion_policy/blob/main/diffus
 
 """
 
+from transforms3d.euler import mat2euler
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
@@ -56,7 +57,7 @@ class RoboScapeImageWrapper(gym.Env):
         # set up normalization
         self.normalize = normalization_path is not None
         if self.normalize:
-            self.NORMALIZE_PARAMS = np.load(normalization_path)
+            self.NORMALIZE_PARAMS = np.load(normalization_path, allow_pickle=True)
 
             self.pose_gripper_mean = np.concatenate(
                 [
@@ -203,76 +204,110 @@ class RoboScapeImageWrapper(gym.Env):
         assert len(action.shape) == 2 and action.shape[1] == 10
         (B, action_dim) = action.shape
 
-        mat_6 = action[:, 3:9].reshape(action.shape[0], 3, 2)  # [B ,3, 2]
-        mat_6[:, :, 0] = mat_6[:, :, 0] / np.linalg.norm(mat_6[:, :, 0])  # [B, 3]
-        mat_6[:, :, 1] = mat_6[:, :, 1] / np.linalg.norm(mat_6[:, :, 1])  # [B, 3]
-        z_vec = np.cross(mat_6[:, :, 0], mat_6[:, :, 1])  # [B, 3]
-        z_vec = z_vec[:, :, np.newaxis]  # (B, 3, 1)
-        mat = np.concatenate([mat_6, z_vec], axis=2)  # [B, 3, 3]
-        pos = action[:, :3]  # [B, 3]
-        gripper_width = action[:, -1, np.newaxis]  # [B, 1]
+        def mat_6_to_mat(mat_6):
+            assert mat_6.shape[-1] == 2
+            assert mat_6.shape[-2] == 3
 
-        # [b, 7] to [b, 4, 4] + [b, 10] --> [b, 7]
-        def seven_dof_pose_with_euler_to_matrix(seven_dof_pose, euler_order="xyz"):
-            """
-            将包含旋转角(欧拉角)和gripper状态的7维姿态批量转换为4x4变换矩阵
+            mat_6[:, :, 0] = mat_6[:, :, 0] / np.linalg.norm(mat_6[:, :, 0])  # [B, 3]
+            mat_6[:, :, 1] = mat_6[:, :, 1] / np.linalg.norm(mat_6[:, :, 1])  # [B, 3]
+            z_vec = np.cross(mat_6[:, :, 0], mat_6[:, :, 1])  # [B, 3]
+            z_vec = z_vec[:, :, np.newaxis]  # (B, 3, 1)
+            mat = np.concatenate([mat_6, z_vec], axis=2)  # [B, 3, 3]
 
-            参数:
-                seven_dof_pose: 形状为(B, 7)的数组，格式为[x, y, z, roll, pitch, yaw, gripper]
-                                其中前3个是位置，中间3个是欧拉角，最后1个是gripper状态
-                euler_order: 欧拉角旋转顺序，如'xyz', 'zyx'等，根据实际情况调整
+            return mat
 
-            返回:
-                形状为(B, 4, 4)的批量4x4变换矩阵
-            """
-            # 获取批次大小
-            batch_size = seven_dof_pose.shape[0]
+        action_pos, action_mat_6, gripper_width = (
+            action[:, :3],
+            action[:, 3:9],
+            action[:, 9:],
+        )
 
-            # 提取位置分量 (B, 3)
-            positions = seven_dof_pose[:, :3]
+        mat = mat_6_to_mat(action_mat_6.reshape(-1, 3, 2))
 
-            # 提取欧拉角分量 (B, 3)
-            eulers = seven_dof_pose[:, 3:6]
+        action_euler = []
+        for i in range(mat.shape[0]):
+            action_euler.append(mat2euler(mat[i]))
 
-            # 创建批量4x4单位矩阵 (B, 4, 4)
-            transform_matrices = np.eye(4, dtype=np.float32)[np.newaxis, ...].repeat(
-                batch_size, axis=0
-            )
+        action_euler = np.stack(action_euler)
 
-            # 设置平移分量 (B, 3) -> (B, 3, 1) 并赋值
-            transform_matrices[:, :3, 3] = positions
+        action_7d = np.concatenate([action_pos, action_euler, gripper_width], axis=-1)
 
-            # 将欧拉角批量转换为旋转矩阵 (B, 3, 3)
-            rotations = R.from_euler(euler_order, eulers, degrees=False)
-            rotation_matrices = rotations.as_matrix()  # 形状为 (B, 3, 3)
+        return action_7d
 
-            # 设置旋转分量
-            transform_matrices[:, :3, :3] = rotation_matrices
+    # def action_transform(self, action):
+    #     assert len(action.shape) == 2 and action.shape[1] == 10
+    #     (B, action_dim) = action.shape
 
-            return transform_matrices
+    #     mat_6 = action[:, 3:9].reshape(action.shape[0], 3, 2)  # [B ,3, 2]
+    #     mat_6[:, :, 0] = mat_6[:, :, 0] / np.linalg.norm(mat_6[:, :, 0])  # [B, 3]
+    #     mat_6[:, :, 1] = mat_6[:, :, 1] / np.linalg.norm(mat_6[:, :, 1])  # [B, 3]
+    #     z_vec = np.cross(mat_6[:, :, 0], mat_6[:, :, 1])  # [B, 3]
+    #     z_vec = z_vec[:, :, np.newaxis]  # (B, 3, 1)
+    #     mat = np.concatenate([mat_6, z_vec], axis=2)  # [B, 3, 3]
+    #     pos = action[:, :3]  # [B, 3]
+    #     gripper_width = action[:, -1, np.newaxis]  # [B, 1]
 
-        ##### Modified below #####
-        # pose: Pose = self.env.agent.ee_pose_at_robot_base
-        # self.pose_at_obs = pose.to_transformation_matrix().cpu().numpy()  # [b, 4, 4]
-        ##### Modified above #####
-        pose = self.env.action_buffer[-1].cpu().numpy()  # (B, 7)
-        matrix = seven_dof_pose_with_euler_to_matrix(pose, euler_order="xyz")
-        init_to_desired_pose = matrix @ get_pose_from_rot_pos_batch(
-            mat, pos
-        )  # for delta_action in base frame
+    #     # [b, 7] to [b, 4, 4] + [b, 10] --> [b, 7]
+    #     def seven_dof_pose_with_euler_to_matrix(seven_dof_pose, euler_order="xyz"):
+    #         """
+    #         将包含旋转角(欧拉角)和gripper状态的7维姿态批量转换为4x4变换矩阵
 
-        pose_action = np.concatenate(
-            [
-                init_to_desired_pose[:, :3, 3],
-                matrix_to_euler_angles(
-                    torch.from_numpy(init_to_desired_pose[:, :3, :3]), "XYZ"
-                ).numpy(),
-                gripper_width,
-            ],
-            axis=1,
-        )  # [B, 7]
+    #         参数:
+    #             seven_dof_pose: 形状为(B, 7)的数组，格式为[x, y, z, roll, pitch, yaw, gripper]
+    #                             其中前3个是位置，中间3个是欧拉角，最后1个是gripper状态
+    #             euler_order: 欧拉角旋转顺序，如'xyz', 'zyx'等，根据实际情况调整
 
-        return pose_action
+    #         返回:
+    #             形状为(B, 4, 4)的批量4x4变换矩阵
+    #         """
+    #         # 获取批次大小
+    #         batch_size = seven_dof_pose.shape[0]
+
+    #         # 提取位置分量 (B, 3)
+    #         positions = seven_dof_pose[:, :3]
+
+    #         # 提取欧拉角分量 (B, 3)
+    #         eulers = seven_dof_pose[:, 3:6]
+
+    #         # 创建批量4x4单位矩阵 (B, 4, 4)
+    #         transform_matrices = np.eye(4, dtype=np.float32)[np.newaxis, ...].repeat(
+    #             batch_size, axis=0
+    #         )
+
+    #         # 设置平移分量 (B, 3) -> (B, 3, 1) 并赋值
+    #         transform_matrices[:, :3, 3] = positions
+
+    #         # 将欧拉角批量转换为旋转矩阵 (B, 3, 3)
+    #         rotations = R.from_euler(euler_order, eulers, degrees=False)
+    #         rotation_matrices = rotations.as_matrix()  # 形状为 (B, 3, 3)
+
+    #         # 设置旋转分量
+    #         transform_matrices[:, :3, :3] = rotation_matrices
+
+    #         return transform_matrices
+
+    #     ##### Modified below #####
+    #     # pose: Pose = self.env.agent.ee_pose_at_robot_base
+    #     # self.pose_at_obs = pose.to_transformation_matrix().cpu().numpy()  # [b, 4, 4]
+    #     ##### Modified above #####
+    #     pose = self.env.action_buffer[-1].cpu().numpy()  # (B, 7)
+    #     matrix = seven_dof_pose_with_euler_to_matrix(pose, euler_order="xyz")
+    #     init_to_desired_pose = matrix @ get_pose_from_rot_pos_batch(
+    #         mat, pos
+    #     )  # for delta_action in base frame
+
+    #     pose_action = np.concatenate(
+    #         [
+    #             init_to_desired_pose[:, :3, 3],
+    #             matrix_to_euler_angles(
+    #                 torch.from_numpy(init_to_desired_pose[:, :3, :3]), "XYZ"
+    #             ).numpy(),
+    #             gripper_width,
+    #         ],
+    #         axis=1,
+    #     )  # [B, 7]
+
+    #     return pose_action
 
     def step(self, action, timestep=None):
         if self.normalize:
