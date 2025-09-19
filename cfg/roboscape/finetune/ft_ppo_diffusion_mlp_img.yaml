@@ -5,6 +5,7 @@ hydra:
     dir: ${logdir}
 _target_: agent.finetune.train_ppo_diffusion_img_agent.TrainPPOImgDiffusionAgent
 
+abs_action: True
 name: ${env_name}_ft_diffusion_mlp_img_ta${horizon_steps}_td${denoising_steps}_tdf${ft_denoising_steps}
 logdir: ${oc.env:DPPO_LOG_DIR}/maniskill-finetune/${name}/${now:%Y-%m-%d}_${now:%H-%M-%S}_${seed}
 base_policy_path: /ML-vePFS/tangyinzhou/yinuo/dp_train_zhiting/ckpts/20250917_165837/policy_step_200000_seed_0.ckpt

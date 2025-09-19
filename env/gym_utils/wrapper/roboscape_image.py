@@ -234,6 +234,36 @@ class RoboScapeImageWrapper(gym.Env):
 
         return action_7d
 
+    def action_transform_abs(self, action):
+        assert len(action.shape) == 2 and action.shape[1] == 10
+        (B, action_dim) = action.shape
+
+        mat_6 = action[:, 3:9].reshape(action.shape[0], 3, 2)  # [B ,3, 2]
+        mat_6[:, :, 0] = mat_6[:, :, 0] / np.linalg.norm(mat_6[:, :, 0])  # [B, 3]
+        mat_6[:, :, 1] = mat_6[:, :, 1] / np.linalg.norm(mat_6[:, :, 1])  # [B, 3]
+        z_vec = np.cross(mat_6[:, :, 0], mat_6[:, :, 1])  # [B, 3]
+        z_vec = z_vec[:, :, np.newaxis]  # (B, 3, 1)
+        mat = np.concatenate([mat_6, z_vec], axis=2)  # [B, 3, 3]
+        pos = action[:, :3]  # [B, 3]
+        gripper_width = action[:, -1, np.newaxis]  # [B, 1]
+
+        init_to_desired_pose = get_pose_from_rot_pos_batch(
+            mat, pos
+        )  # for delta_action in base frame
+
+        pose_action = np.concatenate(
+            [
+                init_to_desired_pose[:, :3, 3],
+                matrix_to_euler_angles(
+                    torch.from_numpy(init_to_desired_pose[:, :3, :3]), "XYZ"
+                ).numpy(),
+                gripper_width,
+            ],
+            axis=1,
+        )  # [B, 7]
+
+        return pose_action
+
     # def action_transform(self, action):
     #     assert len(action.shape) == 2 and action.shape[1] == 10
     #     (B, action_dim) = action.shape
@@ -312,7 +342,10 @@ class RoboScapeImageWrapper(gym.Env):
     def step(self, action, timestep=None):
         if self.normalize:
             action = self.unnormalize_action(action)  # (B,action_dim)
-        action = self.action_transform(action)
+        if self.cfg.abs_action:
+            action = self.action_transform_abs(action)
+        else:
+            action = self.action_transform(action)
         raw_obs, reward, terminated, truncated, info = self.env.step(
             action, timestep
         )  # raw_obs: (B, obs_dim)
