@@ -309,17 +309,6 @@ class VisionDiffusionMLP(nn.Module):
             diffusion_step_embed_dim=256
         )
 
-        # setup noise scheduler
-        self.noise_scheduler = DDIMScheduler(
-            num_train_timesteps=50,
-            beta_schedule='squaredcos_cap_v2',
-            clip_sample=True,
-            set_alpha_to_one=True,
-            steps_offset=0,
-            prediction_type='epsilon'
-        )
-        self.num_inference_timesteps = 10
-
 
 
     def forward(

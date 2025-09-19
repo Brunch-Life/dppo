@@ -174,6 +174,32 @@ class ManiskillImageWrapper(gym.Env):
             axis=1) # [B, 7]
 
         return pose_action
+    
+    def action_transform_abs(self, action):
+        assert len(action.shape) == 2 and action.shape[1] == 10
+        (B,action_dim) = action.shape
+
+        mat_6 = action[:,3:9].reshape(action.shape[0],3,2) # [B ,3, 2]
+        mat_6[:, :, 0] = mat_6[:, :, 0] / np.linalg.norm(mat_6[:, :, 0]) # [B, 3]
+        mat_6[:, :, 1] = mat_6[:, :, 1] / np.linalg.norm(mat_6[:, :, 1]) # [B, 3]
+        z_vec = np.cross(mat_6[:, :, 0], mat_6[:, :, 1]) # [B, 3]
+        z_vec = z_vec[:, :, np.newaxis]  # (B, 3, 1)
+        mat = np.concatenate([mat_6, z_vec], axis=2) # [B, 3, 3]
+        pos = action[:, :3] # [B, 3]
+        gripper_width = action[:, -1, np.newaxis] # [B, 1]
+
+
+        init_to_desired_pose = get_pose_from_rot_pos_batch(mat, pos) # for delta_action in base frame 
+
+        pose_action = np.concatenate(
+            [
+                init_to_desired_pose[:, :3, 3],
+                matrix_to_euler_angles(torch.from_numpy(init_to_desired_pose[:, :3, :3]),"XYZ").numpy(),
+                gripper_width
+            ],
+            axis=1) # [B, 7]
+
+        return pose_action
 
     def get_observation(self, raw_obs):
         obs = {"rgb": None, "state": None}  # stack rgb if multiple cameras
@@ -223,7 +249,7 @@ class ManiskillImageWrapper(gym.Env):
         #     obs["state"] = self.normalize_obs(obs["state"])
             
         # obs["rgb"] *= 255  # [0, 1] -> [0, 255], in float64
-        obs["rgb"] = torch.tensor(image_data).float().to(raw_obs['sensor_data'][self.image_keys[0]]['rgb'].device) # obs["rgb"].float()
+        obs["rgb"] = torch.tensor(image_data).float().to(raw_obs['sensor_data'][self.image_keys[0]]['rgb'].device).reshape(-1, 6, 224, 224)
         if obs['state'] is None:
             obs['state'] = torch.zeros(obs['rgb'].shape[0], 10).to(obs['rgb'].device)
         
@@ -294,9 +320,10 @@ class ManiskillImageWrapper(gym.Env):
             action = self.unnormalize_action(action)
             # print("unnormalize action:", action)
 
-        # print("unprocess action?:", action[0])
-        action = self.action_transform(action)
-        # print("action_transform:", action)
+        if self.cfg.abs_action:
+            action = self.action_transform_abs(action)
+        else:
+            action = self.action_transform(action)
 
         # print("action?:", action[0])
 

@@ -38,6 +38,17 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
 
         self.debug_step = 0
 
+        # freeze backbone
+        for param in self.model.actor_ft.backbone.parameters():
+            param.requires_grad = False
+
+        self.model.critic.backbone.load_state_dict(self.model.actor_ft.backbone.state_dict())
+
+        for param in self.model.critic.backbone.parameters():
+            param.requires_grad = False
+
+        print("freeze backbone!")
+
     def run(self):
         ptr = 0
         # Start training loop
@@ -297,22 +308,6 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     output_venv = (
                         samples.trajectories.cpu().numpy()
                     )  # n_env x horizon x act
-
-                    # print("output_venv:", output_venv[0], output_venv.shape)
-
-                    # exit(0)
-
-                    # action_check = np.load("./debug/data3.npy", allow_pickle=True).item()
-                    # print("????????:", action_check["raw_actions"])
-                    # # print("output_venv:", output_venv)
-                    # print("???:", self.venv.env.unnormalize_action(output_venv))
-                    # print("delta:", self.venv.env.unnormalize_action(output_venv) - action_check["raw_actions"])
-                    # exit(0)
-
-                    # print("output_venv:", output_venv)
-                    # print("???:", self.venv.env.action_transform(self.venv.env.unnormalize_action(output_venv[0, 0:4])))
-                    # exit(0)
-
                     chains_venv = (
                         samples.chains.cpu().numpy()
                     )  # n_env x denoising x horizon x act
@@ -460,7 +455,7 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
 
                     # bootstrap value with GAE if not terminal - apply reward scaling with constant if specified
                     obs_venv_ts = {
-                        key: torch.from_numpy(obs_venv[key]).float().to(self.device)
+                        key: obs_venv[key] # torch.from_numpy(obs_venv[key]).float().to(self.device)
                         for key in self.obs_dims
                     }
                     advantages_trajs = np.zeros_like(reward_trajs)
@@ -572,7 +567,7 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                         # update policy and critic
                         loss.backward()
                         if (batch + 1) % self.grad_accumulate == 0:
-                            if self.itr >= self.n_critic_warmup_itr:
+                            if warmup_done_flag:
                                 if self.max_grad_norm is not None:
                                     torch.nn.utils.clip_grad_norm_(
                                         self.model.actor_ft.parameters(),
@@ -598,7 +593,7 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                             if (
                                 self.target_kl is not None
                                 and approx_kl > self.target_kl
-                                and self.itr >= self.n_critic_warmup_itr
+                                and warmup_done_flag
                             ):
                                 flag_break = True
                                 break
@@ -611,9 +606,12 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                 explained_var = (
                     np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
                 )
+                
+            warmup_done_flag = self.itr > self.n_critic_warmup_itr
+            
 
             # Update lr, min_sampling_std
-            if self.itr >= self.n_critic_warmup_itr:
+            if warmup_done_flag:
                 self.actor_lr_scheduler.step()
                 if self.learn_eta:
                     self.eta_lr_scheduler.step()
@@ -655,7 +653,7 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     run_results[-1]["eval_best_reward"] = avg_best_reward
                 else:
                     log.info(
-                        f"{self.itr}: step {cnt_train_step:8d} | loss {loss:8.4f} | pg loss {pg_loss:8.4f} | value loss {v_loss:8.4f} | bc loss {bc_loss:8.4f} | reward {avg_episode_reward:8.4f} | eta {eta:8.4f} | t:{time:8.4f}"
+                        f"itr {self.itr}: step {cnt_train_step:8d} | loss {loss:8.4f} | pg loss {pg_loss:8.4f} | value loss {v_loss:8.4f} | bc loss {bc_loss:8.4f} | reward {avg_episode_reward:8.4f} | eta {eta:8.4f} | t:{time:8.4f}"
                     )
                     if self.use_wandb:
                         wandb.log(

@@ -75,14 +75,15 @@ class DiffusionModel(nn.Module):
 
         # Set up models
         self.network = network.to(device)
-        print("state_dict before loading", self.network.state_dict()['noise_pred_net.down_modules.2.0.blocks.1.block.1.weight'])
+        # print("diffusion model device", self.network.device)
+        # print("state_dict before loading", self.network.state_dict()['noise_pred_net.down_modules.2.0.blocks.1.block.1.weight'])
         if network_path is not None:
             checkpoint = torch.load(
                 network_path, map_location=self.device, weights_only=True
             )
-            for key, value in self.network.state_dict().items():
-                if "noise_pred_net" in key:
-                    print(key)
+            # for key, value in self.network.state_dict().items():
+            #     if "noise_pred_net" in key:
+            #         print(key)
             if "ema" in checkpoint:
                 statedict_to_load = OrderedDict()
                 for key, value in checkpoint["ema"].items():
@@ -100,7 +101,7 @@ class DiffusionModel(nn.Module):
                 logging.info("Successfully loaded Pre-trained policy from %s", network_path)
             else:
                 raise ValueError("Invalid checkpoint. No ema found")
-        print("state_dict after loading", self.network.state_dict()['noise_pred_net.down_modules.2.0.blocks.1.block.1.weight'])
+        # print("state_dict after loading", self.network.state_dict()['noise_pred_net.down_modules.2.0.blocks.1.block.1.weight'])
         logging.info(
             f"Number of network parameters: {sum(p.numel() for p in self.parameters())}"
         )

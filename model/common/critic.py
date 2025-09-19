@@ -220,9 +220,7 @@ class ResNetCritic(CriticObs):
         num_img=1,
         **kwargs,
     ):
-        # update input dim to mlp
-        mlp_obs_dim = spatial_emb * num_img + cond_dim
-        super().__init__(cond_dim=mlp_obs_dim, **kwargs)
+        super().__init__(cond_dim=cond_dim, **kwargs)
         self.backbone = backbone
         self.num_img = num_img
         self.img_cond_steps = img_cond_steps
