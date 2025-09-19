@@ -41,7 +41,7 @@ class RoboScapeImageWrapper(gym.Env):
         ],
         clamp_obs=False,
         init_state=None,
-        render_hw=(224, 224),
+        render_hw=(256, 256),
         render_camera_name="3rd_view_camera",
         cfg=None,
     ):
