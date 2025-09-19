@@ -460,7 +460,7 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
                 )
                 
-            warmup_done_flag = self.itr > self.n_critic_warmup_itr and explained_var > 0.5
+            warmup_done_flag = self.itr > self.n_critic_warmup_itr
             
 
             # Update lr, min_sampling_std
