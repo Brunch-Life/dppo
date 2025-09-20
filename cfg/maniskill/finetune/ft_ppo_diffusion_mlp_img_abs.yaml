@@ -70,7 +70,7 @@ wandb:
 
 train:
   n_train_itr: 151
-  n_critic_warmup_itr: 50
+  n_critic_warmup_itr: 100
   n_steps: 120
   gamma: 0.999
   augment: False

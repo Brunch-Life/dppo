@@ -100,7 +100,8 @@ class DiffusionModel(nn.Module):
                 self.network.load_state_dict(statedict_to_load, strict=True)
                 logging.info("Successfully loaded Pre-trained policy from %s", network_path)
             else:
-                raise ValueError("Invalid checkpoint. No ema found")
+                self.load_state_dict(checkpoint["model"], strict=True)
+                logging.info("Loaded RL-trained policy from %s", network_path)
         # print("state_dict after loading", self.network.state_dict()['noise_pred_net.down_modules.2.0.blocks.1.block.1.weight'])
         logging.info(
             f"Number of network parameters: {sum(p.numel() for p in self.parameters())}"
