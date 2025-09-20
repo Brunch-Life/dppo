@@ -40,8 +40,8 @@ env:
   task: pickplace
   wmconfig: /ML-vePFS/tangyinzhou/RoboScape-R/dppo/env/roboscape/genie/genie/configs/magvit_n32_h8_d512_action_done.json
   goaler_config: /ML-vePFS/tangyinzhou/RoboScape-R/dppo/env/roboscape/genie/genie/configs/magvit_n32_h8_d512_text_done.json
-  wmckpt: /manifold-obs/tangyinzhou/encoded_maniskill/action_finetune_target_bins_0911_multiview_n0.01/step_120000
-  goaler_ckpt: /manifold-obs/tangyinzhou/encoded_maniskill/action_finetune_target_bins_0911_multiview_n0.01/step_120000
+  wmckpt: /manifold-obs/tangyinzhou/encoded_maniskill/action_target_bins_resumed/step_180000
+  goaler_ckpt: /manifold-obs/tangyinzhou/encoded_maniskill/action_target_bins_resumed/step_180000
   total_steps: 2
   scene_id: 20250907_210135
   data_dir: /manifold-obs/tangyinzhou/encoded_maniskill_delta_multi_view_wooden/20250907_210135/20250907_210135

@@ -154,3 +154,4 @@ debug/data3.npy
 
 env/roboscape/genie/magvit2.ckpt
 env/roboscape/vgg16-397923af.pth
+vis_reward/output_video.mp4

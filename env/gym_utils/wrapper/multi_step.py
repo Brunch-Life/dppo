@@ -150,7 +150,9 @@ class MultiStep(gym.Wrapper):
             action = action[None]
         if not self.env.cfg.env.name == "RoboScape":
             self.env.pos_at_obs = self.env.pos_at_obs_new
-        for act_step, act in enumerate(action.transpose(1, 0, 2)):
+        action = action.transpose(1, 0, 2)  # (n_action_steps, B, action_dim)
+        action = action[::4]
+        for act_step, act in enumerate(action):
             # done does not differentiate terminal and truncation
             observation, reward, terminated, truncated, info = self.env.step(
                 act

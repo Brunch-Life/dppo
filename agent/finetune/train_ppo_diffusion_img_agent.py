@@ -42,7 +42,9 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
         for param in self.model.actor_ft.backbone.parameters():
             param.requires_grad = False
 
-        self.model.critic.backbone.load_state_dict(self.model.actor_ft.backbone.state_dict())
+        self.model.critic.backbone.load_state_dict(
+            self.model.actor_ft.backbone.state_dict()
+        )
 
         for param in self.model.critic.backbone.parameters():
             param.requires_grad = False
@@ -220,75 +222,75 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                         for key in self.obs_dims
                     }
                     ############# TEST FOR NOW !!!#############
-                    from torchvision import transforms
+                    # from torchvision import transforms
 
-                    resize_transform = transforms.Resize((224, 224))
-                    cam_3rd = []
-                    cam_wrist = []
-                    video_path = os.listdir(
-                        "/manifold-obs/bingwen/Datasets/wooden/plate/TabletopPickPlaceEnv-v1/20250907_210135/nonstop_plate_wooden/success"
-                    )[0]
-                    data = np.load(
-                        f"/manifold-obs/bingwen/Datasets/wooden/plate/TabletopPickPlaceEnv-v1/20250907_210135/nonstop_plate_wooden/success/{video_path}",
-                        allow_pickle=True,
-                    )["arr_0"].tolist()
-                    import cv2
+                    # resize_transform = transforms.Resize((224, 224))
+                    # cam_3rd = []
+                    # cam_wrist = []
+                    # video_path = os.listdir(
+                    #     "/manifold-obs/bingwen/Datasets/wooden/plate/TabletopPickPlaceEnv-v1/20250907_210135/nonstop_plate_wooden/success"
+                    # )[0]
+                    # data = np.load(
+                    #     f"/manifold-obs/bingwen/Datasets/wooden/plate/TabletopPickPlaceEnv-v1/20250907_210135/nonstop_plate_wooden/success/{video_path}",
+                    #     allow_pickle=True,
+                    # )["arr_0"].tolist()
+                    # import cv2
 
-                    for jpeg_bytes in data["observation"]["rgb"]:
-                        img = cv2.imdecode(
-                            np.frombuffer(jpeg_bytes, np.uint8), cv2.IMREAD_COLOR
-                        )
-                        tensor = (
-                            torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
-                        )  # CHW 0-1
-                        tensor = resize_transform(
-                            tensor
-                        )  # ← 你定义的 transforms.Resize(256,256)
-                        imageio.imwrite(
-                            f"/ML-vePFS/tangyinzhou/RoboScape-R/dppo/debug.png",
-                            (tensor.cpu().numpy().transpose(1, 2, 0) * 255).astype(
-                                np.uint8
-                            ),
-                        )
-                        cam_3rd.append(tensor)
-                    for jpeg_bytes in data["observation"]["wrist_rgb"]:
-                        img = cv2.imdecode(
-                            np.frombuffer(jpeg_bytes, np.uint8), cv2.IMREAD_COLOR
-                        )
-                        tensor = (
-                            torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
-                        )  # CHW 0-1
-                        tensor = resize_transform(
-                            tensor
-                        )  # ← 你定义的 transforms.Resize(256,256)
-                        cam_wrist.append(tensor)
-                    imageio.imwrite(
-                        "/ML-vePFS/tangyinzhou/RoboScape-R/dppo/debug_0.png",
-                        (cam_3rd[0].cpu().numpy().transpose(1, 2, 0) * 255).astype(
-                            np.uint8
-                        ),
-                    )
-                    imageio.imwrite(
-                        "/ML-vePFS/tangyinzhou/RoboScape-R/dppo/debug_60.png",
-                        (cam_3rd[15 * 4].cpu().numpy().transpose(1, 2, 0) * 255).astype(
-                            np.uint8
-                        ),
-                    )
-                    cond["rgb"] = (
-                        torch.stack(
-                            [
-                                torch.concat(
-                                    [cam_3rd[15 * 4], cam_wrist[15 * 4]], dim=0
-                                ),
-                                torch.concat(
-                                    [cam_3rd[15 * 4], cam_wrist[15 * 4]], dim=0
-                                ),
-                            ]
-                        )
-                        .unsqueeze(1)
-                        .to(cond["rgb"].dtype)
-                        .to(cond["rgb"].device)
-                    )  # 2 1 6 224 224
+                    # for jpeg_bytes in data["observation"]["rgb"]:
+                    #     img = cv2.imdecode(
+                    #         np.frombuffer(jpeg_bytes, np.uint8), cv2.IMREAD_COLOR
+                    #     )
+                    #     tensor = (
+                    #         torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
+                    #     )  # CHW 0-1
+                    #     tensor = resize_transform(
+                    #         tensor
+                    #     )  # ← 你定义的 transforms.Resize(256,256)
+                    #     imageio.imwrite(
+                    #         f"/ML-vePFS/tangyinzhou/RoboScape-R/dppo/debug.png",
+                    #         (tensor.cpu().numpy().transpose(1, 2, 0) * 255).astype(
+                    #             np.uint8
+                    #         ),
+                    #     )
+                    #     cam_3rd.append(tensor)
+                    # for jpeg_bytes in data["observation"]["wrist_rgb"]:
+                    #     img = cv2.imdecode(
+                    #         np.frombuffer(jpeg_bytes, np.uint8), cv2.IMREAD_COLOR
+                    #     )
+                    #     tensor = (
+                    #         torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
+                    #     )  # CHW 0-1
+                    #     tensor = resize_transform(
+                    #         tensor
+                    #     )  # ← 你定义的 transforms.Resize(256,256)
+                    #     cam_wrist.append(tensor)
+                    # imageio.imwrite(
+                    #     "/ML-vePFS/tangyinzhou/RoboScape-R/dppo/debug_0.png",
+                    #     (cam_3rd[0].cpu().numpy().transpose(1, 2, 0) * 255).astype(
+                    #         np.uint8
+                    #     ),
+                    # )
+                    # imageio.imwrite(
+                    #     "/ML-vePFS/tangyinzhou/RoboScape-R/dppo/debug_60.png",
+                    #     (cam_3rd[15 * 4].cpu().numpy().transpose(1, 2, 0) * 255).astype(
+                    #         np.uint8
+                    #     ),
+                    # )
+                    # cond["rgb"] = (
+                    #     torch.stack(
+                    #         [
+                    #             torch.concat(
+                    #                 [cam_3rd[15 * 4], cam_wrist[15 * 4]], dim=0
+                    #             ),
+                    #             torch.concat(
+                    #                 [cam_3rd[15 * 4], cam_wrist[15 * 4]], dim=0
+                    #             ),
+                    #         ]
+                    #     )
+                    #     .unsqueeze(1)
+                    #     .to(cond["rgb"].dtype)
+                    #     .to(cond["rgb"].device)
+                    # )  # 2 1 6 224 224
                     ############# TEST FOR NOW !!!#############
                     # batch each type of obs and put into dict
                     # cond["rgb"] = cond["rgb"].float() / 255.0
@@ -311,7 +313,9 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                     chains_venv = (
                         samples.chains.cpu().numpy()
                     )  # n_env x denoising x horizon x act
-                action_venv = output_venv[:, : self.act_steps]
+
+                # action_venv = output_venv[:, : self.act_steps]
+                action_venv = output_venv
 
                 # env here
                 # Apply multi-step action
@@ -455,7 +459,9 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
 
                     # bootstrap value with GAE if not terminal - apply reward scaling with constant if specified
                     obs_venv_ts = {
-                        key: obs_venv[key] # torch.from_numpy(obs_venv[key]).float().to(self.device)
+                        key: obs_venv[
+                            key
+                        ]  # torch.from_numpy(obs_venv[key]).float().to(self.device)
                         for key in self.obs_dims
                     }
                     advantages_trajs = np.zeros_like(reward_trajs)
@@ -606,9 +612,8 @@ class TrainPPOImgDiffusionAgent(TrainPPODiffusionAgent):
                 explained_var = (
                     np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
                 )
-                
+
             warmup_done_flag = self.itr > self.n_critic_warmup_itr
-            
 
             # Update lr, min_sampling_std
             if warmup_done_flag:

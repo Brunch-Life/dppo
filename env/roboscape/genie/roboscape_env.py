@@ -617,6 +617,9 @@ class RoboScapeEnv(gym.Env):
         dense_reward = compute_lpips(
             decoded_pred, self.target_observations, self.lpips_net
         )
+        dense_reward = (
+            torch.ones_like(dense_reward).to(dense_reward.device) - dense_reward
+        )
         sparse_reward = [10 if x >= 0.9 else 0 for x in done[:, 0]]
         return np.array(dense_reward).reshape(-1) + np.array(sparse_reward).reshape(-1)
 
